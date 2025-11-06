@@ -1,1 +1,55 @@
-import osimport jsondef apply_fixes(filepath, issues, dry_run=False, output_json=False, report_dir="reports"):    """    Apply auto-fixable changes if requested, and optionally generate JSON reports.    JSON includes **all issues**, not just fixable ones.    """    changes = []    # Process fixable issues for autofix/dry-run    fixed_lines = None    for issue in issues:        if issue.get("fixable"):            line_num = issue.get("line")            if line_num and line_num > 0:                if fixed_lines is None:                    with open(filepath, "r", encoding="utf-8") as f:                        fixed_lines = f.readlines()                original = fixed_lines[line_num - 1].rstrip("\n")                new_line = issue.get("fix", original)                changes.append({                    "line": line_num,                    "original": original,                    "fixed": new_line,                    "type": issue.get("type"),                    "confidence": issue.get("confidence", "High")                })                if not dry_run:                    fixed_lines[line_num - 1] = new_line + "\n"    # Save .fixed file if autofix and changes exist    if fixed_lines and not dry_run:        fixed_path = filepath + ".fixed"        with open(fixed_path, "w", encoding="utf-8") as f:            f.writelines(fixed_lines)        print(f"[+] Fixed issues saved to: {fixed_path}")    # Save JSON report if requested **and there are any issues**    if output_json and issues:        os.makedirs(report_dir, exist_ok=True)        base_filename = os.path.basename(filepath)        json_path = os.path.join(report_dir, base_filename + ".report.json")        # Include all issues, not just fixable ones        json.dump(issues, open(json_path, "w", encoding="utf-8"), indent=4)        print(f"[+] JSON report saved to: {json_path}")    return changes
+import os
+import json
+
+
+def apply_fixes(filepath, issues, dry_run=False, output_json=False, report_dir="reports"):
+    """
+    Apply auto-fixable changes if requested, and optionally generate JSON reports.
+    JSON includes **all issues**, not just fixable ones.
+    """
+    changes = []
+    fixed_lines = None
+
+    # Process fixable issues for autofix/dry-run
+    for issue in issues:
+        if issue.get("fixable"):
+            line_num = issue.get("line")
+            if line_num and line_num > 0:
+                if fixed_lines is None:
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        fixed_lines = f.readlines()
+
+                original = fixed_lines[line_num - 1].rstrip("\n")
+                new_line = issue.get("fix", original)
+
+                changes.append({
+                    "line": line_num,
+                    "original": original,
+                    "fixed": new_line,
+                    "type": issue.get("type"),
+                    "confidence": issue.get("confidence", "High")
+                })
+
+                if not dry_run:
+                    fixed_lines[line_num - 1] = new_line + "\n"
+
+    # Save .fixed file if autofix and changes exist
+    if fixed_lines and not dry_run:
+        fixed_path = filepath + ".fixed"
+        with open(fixed_path, "w", encoding="utf-8") as f:
+            f.writelines(fixed_lines)
+        print(f"[+] Fixed issues saved to: {fixed_path}")
+
+    # Save JSON report if requested and there are any issues
+    if output_json and issues:
+        os.makedirs(report_dir, exist_ok=True)
+        base_filename = os.path.basename(filepath)
+        json_path = os.path.join(report_dir, base_filename + ".report.json")
+
+        # Include all issues, not just fixable ones
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(issues, f, indent=4)
+
+        print(f"[+] JSON report saved to: {json_path}")
+
+    return changes
