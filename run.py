@@ -31,6 +31,8 @@ def analyze_directory(directory, autofix=False, dry_run=False, json_report=False
                 lang = "javascript"
             elif f.endswith(".html"):
                 lang = "html"
+            elif f.endswith(".php"):
+                lang = "php"
             else:
                 continue
 

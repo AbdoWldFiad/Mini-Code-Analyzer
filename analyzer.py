@@ -1,6 +1,6 @@
 import ast
 import os
-from rules import python_rules, js_rules, html_rules
+from rules import python_rules, js_rules, html_rules, php_rules
 from rules.web import flask_rules, django_rules, react_rules
 
 
@@ -8,6 +8,7 @@ LANG_RULES = {
     "python": python_rules.rules,
     "javascript": js_rules.rules,
     "html": html_rules.rules,
+    "php": php_rules.rules,
 }
 
 FRAMEWORK_RULES = {
