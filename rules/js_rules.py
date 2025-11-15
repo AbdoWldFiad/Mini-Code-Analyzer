@@ -262,18 +262,58 @@ def detect_param_reassignment(source):
 
 def detect_unreachable_code(source):
     issues = []
-    after_return = False
+    lines = source.splitlines()
 
-    for i, line in enumerate(source.splitlines(), start=1):
-        if after_return and line.strip():
+    block_stack = []     # track where returns happen per block
+    unreachable = False  # whether current block is dead
+
+    # regexes
+    re_return = re.compile(r"\breturn\b")
+    re_throw = re.compile(r"\bthrow\b")
+    re_break = re.compile(r"\bbreak\b")
+    re_continue = re.compile(r"\bcontinue\b")
+    re_infinite_loop = re.compile(r"\bwhile\s*\(true\)|for\s*\(\s*;;\s*\)")
+
+    def strip_strings_and_comments(line):
+        # remove strings
+        line = re.sub(r'"[^"]*"', "", line)
+        line = re.sub(r"'[^']*'", "", line)
+        line = re.sub(r"`[^`]*`", "", line)
+        # remove inline comments
+        line = re.sub(r"//.*", "", line)
+        return line
+
+    for i, raw_line in enumerate(lines, start=1):
+        line = strip_strings_and_comments(raw_line).strip()
+
+        # Track opening or closing braces to manage block state
+        if "{" in line:
+            block_stack.append(unreachable)
+        if "}" in line:
+            if block_stack:
+                unreachable = block_stack.pop()
+
+        # If we are currently in an unreachable state
+        if unreachable and line:
             issues.append({
                 "type": "Unreachable code",
                 "severity": "High",
-                "suggestion": "Remove unreachable code.",
+                "suggestion": "This code can never run. Remove or restructure it.",
                 "line": i,
             })
-        if "return" in line:
-            after_return = True
+
+        # Detect statements that end the current block's reachability
+        if re_return.search(line) or re_throw.search(line):
+            unreachable = True
+
+        # break/continue unreachable only inside loops
+        if re_break.search(line) or re_continue.search(line):
+            unreachable = True
+
+        # Start unreachable region after infinite loop
+        if re_infinite_loop.search(line):
+            unreachable = True
+
     return issues
 
 def detect_nested_functions(source):
