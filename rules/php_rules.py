@@ -1,281 +1,326 @@
 import re
 
-# 1. Detect use of eval()
-def detect_eval_usage_php(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'\beval\s*\(', line):
-            issues.append({
+# Helper: extract node text
+def get_text(node, source):
+    return source[node.start_byte:node.end_byte]
+
+# Helper: line number
+def get_line(node):
+    return node.start_point[0] + 1
+
+
+# 1. Detect eval()
+def detect_eval_usage_php(node, source):
+    if node.type == "function_call_expression":
+        func = node.child_by_field_name("function")
+        if func and get_text(func, source) == "eval":
+            return [{
                 "type": "Use of eval()",
                 "severity": "High",
-                "suggestion": "Avoid using eval() — it can execute arbitrary code.",
-                "line": i,
-            })
-    return issues
+                "suggestion": "Avoid using eval().",
+                "line": get_line(node),
+            }]
+    return []
 
-# 2. Detect use of exec(), shell_exec(), system()
-def detect_shell_exec(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'\b(exec|shell_exec|system|passthru)\s*\(', line):
-            issues.append({
-                "type": "Use of shell execution",
-                "severity": "High",
-                "suggestion": "Avoid executing shell commands; validate inputs or use safer alternatives.",
-                "line": i,
-            })
-    return issues
 
-# 3. Detect use of include() / require() with variable paths
-def detect_dynamic_include(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'\b(include|require|include_once|require_once)\s*\(\s*\$', line):
-            issues.append({
+# 2. Detect shell execution
+def detect_shell_exec(node, source):
+    if node.type == "function_call_expression":
+        func = node.child_by_field_name("function")
+        if func:
+            name = get_text(func, source)
+            if name in ["exec", "shell_exec", "system", "passthru"]:
+                return [{
+                    "type": "Shell execution",
+                    "severity": "High",
+                    "suggestion": "Avoid executing shell commands.",
+                    "line": get_line(node),
+                }]
+    return []
+
+
+# 3. Dynamic include/require
+def detect_dynamic_include(node, source):
+    if node.type in ["include_expression", "require_expression"]:
+        arg = node.child_by_field_name("argument")
+        if arg and arg.type in ["variable_name", "subscript_expression"]:
+            return [{
                 "type": "Dynamic include/require",
                 "severity": "High",
-                "suggestion": "Avoid including files using variable paths — risk of file injection.",
-                "line": i,
-            })
-    return issues
+                "suggestion": "Avoid dynamic file inclusion.",
+                "line": get_line(node),
+            }]
+    return []
 
-# 4. Detect short open tags "<?"
-def detect_short_tags(source):
+
+# 4. Deprecated mysql_* functions
+def detect_mysql_deprecated(node, source):
+    if node.type == "function_call_expression":
+        func = node.child_by_field_name("function")
+        if func:
+            name = get_text(func, source)
+            if name.startswith("mysql_"):
+                return [{
+                    "type": "Deprecated mysql_*",
+                    "severity": "High",
+                    "suggestion": "Use mysqli or PDO.",
+                    "line": get_line(node),
+                }]
+    return []
+
+
+# 5. Unescaped echo/print
+def detect_unescaped_output(node, source):
+    if node.type == "echo_statement":
+        text = get_text(node, source)
+        if not re.search(r'htmlspecialchars|htmlentities', text):
+            return [{
+                "type": "Unescaped output",
+                "severity": "High",
+                "suggestion": "Escape output to prevent XSS.",
+                "line": get_line(node),
+            }]
+    return []
+
+
+# 6. Unsanitized input ($_GET, $_POST)
+def detect_unsanitized_input(node, source):
+    if node.type == "subscript_expression":
+        text = get_text(node, source)
+        if re.search(r'\$_(GET|POST|REQUEST|COOKIE)', text):
+            return [{
+                "type": "Unsanitized input",
+                "severity": "High",
+                "suggestion": "Sanitize user input.",
+                "line": get_line(node),
+            }]
+    return []
+
+
+# 7. base64_decode usage
+def detect_base64_decode(node, source):
+    if node.type == "function_call_expression":
+        func = node.child_by_field_name("function")
+        if func and get_text(func, source) == "base64_decode":
+            return [{
+                "type": "base64_decode usage",
+                "severity": "Medium",
+                "suggestion": "Ensure it's not hiding malicious code.",
+                "line": get_line(node),
+            }]
+    return []
+
+
+# 8. Assignment inside condition
+def detect_assignment_in_if(node, source):
+    if node.type == "if_statement":
+        condition = node.child_by_field_name("condition")
+        if condition:
+            text = get_text(condition, source)
+            if "=" in text and "==" not in text and "===" not in text:
+                return [{
+                    "type": "Assignment in condition",
+                    "severity": "High",
+                    "suggestion": "Use comparison operators.",
+                    "line": get_line(node),
+                }]
+    return []
+
+
+# 9. eval with user input
+def detect_eval_user_input(node, source):
+    if node.type == "function_call_expression":
+        func = node.child_by_field_name("function")
+        args = node.child_by_field_name("arguments")
+
+        if func and args:
+            if get_text(func, source) == "eval":
+                if re.search(r'\$_(GET|POST|REQUEST|COOKIE)', get_text(args, source)):
+                    return [{
+                        "type": "eval() with user input",
+                        "severity": "Critical",
+                        "suggestion": "Never pass user input to eval().",
+                        "line": get_line(node),
+                    }]
+    return []
+
+
+# 10. md5 password hashing
+def detect_md5_password(node, source):
+    if node.type == "function_call_expression":
+        func = node.child_by_field_name("function")
+        if func and get_text(func, source) == "md5":
+            return [{
+                "type": "Weak hashing (md5)",
+                "severity": "High",
+                "suggestion": "Use password_hash().",
+                "line": get_line(node),
+            }]
+    return []
+
+
+# 11. unserialize user input
+def detect_unserialize_user(node, source):
+    if node.type == "function_call_expression":
+        func = node.child_by_field_name("function")
+        args = node.child_by_field_name("arguments")
+
+        if func and args:
+            if get_text(func, source) == "unserialize":
+                if re.search(r'\$_(GET|POST|REQUEST|COOKIE)', get_text(args, source)):
+                    return [{
+                        "type": "Unserialize user input",
+                        "severity": "Critical",
+                        "line": get_line(node),
+                    }]
+    return []
+
+
+# 12. Short PHP tags (run once)
+def detect_short_tags(node, source):
+    if node.type != "program":
+        return []
+
     issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
+    for i, line in enumerate(source.splitlines(), 1):
         if re.search(r'<\?(?!php)', line):
             issues.append({
                 "type": "Short PHP tag",
                 "severity": "Low",
-                "suggestion": "Use full '<?php' tags for compatibility.",
                 "line": i,
             })
     return issues
 
-# 5. Detect deprecated mysql_* functions
-def detect_mysql_deprecated(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'\bmysql_(query|connect|fetch)\b', line):
-            issues.append({
-                "type": "Deprecated mysql_* function",
-                "severity": "High",
-                "suggestion": "Use mysqli or PDO instead of mysql_* functions.",
-                "line": i,
-            })
-    return issues
+def detect_file_user_input(node, source):
+    if node.type == "function_call_expression":
+        func = node.child_by_field_name("function")
+        args = node.child_by_field_name("arguments")
 
-# 6. Detect unescaped output in echo/print
-def detect_unescaped_output(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'\b(echo|print)\s*\$[a-zA-Z_]\w*', line) and not re.search(r'htmlspecialchars|htmlentities', line):
-            issues.append({
-                "type": "Unescaped output",
-                "severity": "High",
-                "suggestion": "Escape output using htmlspecialchars() or htmlentities() to prevent XSS.",
-                "line": i,
-            })
-    return issues
+        if func and args:
+            name = get_text(func, source)
+            if name in ["fopen", "fread", "fwrite", "file_put_contents"]:
+                if re.search(r'\$_(GET|POST|REQUEST|COOKIE)', get_text(args, source)):
+                    return [{
+                        "type": "File operation with user input",
+                        "severity": "High",
+                        "suggestion": "Validate file paths before use.",
+                        "line": get_line(node),
+                    }]
+    return []
 
-# 7. Detect usage of $_GET / $_POST without sanitization
-def detect_unsanitized_input(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'\$_(GET|POST|REQUEST)\s*\[', line) and not re.search(r'htmlspecialchars|filter_var|intval|mysqli_real_escape_string', line):
-            issues.append({
-                "type": "Unsanitized input",
-                "severity": "High",
-                "suggestion": "Sanitize user input before using it.",
-                "line": i,
-            })
-    return issues
+def detect_error_reporting_off(node, source):
+    if node.type == "function_call_expression":
+        func = node.child_by_field_name("function")
+        args = node.child_by_field_name("arguments")
 
-# 8. Detect use of base64_decode()
-def detect_base64_decode(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'\bbase64_decode\s*\(', line):
-            issues.append({
-                "type": "Use of base64_decode()",
-                "severity": "Medium",
-                "suggestion": "Check why base64 decoding is used; could hide malicious code.",
-                "line": i,
-            })
-    return issues
+        if func and args:
+            if get_text(func, source) == "error_reporting":
+                if "0" in get_text(args, source):
+                    return [{
+                        "type": "Error reporting disabled",
+                        "severity": "Medium",
+                        "suggestion": "Avoid disabling error reporting.",
+                        "line": get_line(node),
+                    }]
+    return []
 
-# 9. Detect assignment inside if conditions
-def detect_assignment_in_if(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'if\s*\(.*=.+\)', line) and not re.search(r'==|===', line):
-            issues.append({
-                "type": "Assignment inside conditional",
-                "severity": "High",
-                "suggestion": "Use '==' or '===' for comparison instead of '='.",
-                "line": i,
-            })
-    return issues
+def detect_global_variables(node, source):
+    if node.type == "global_declaration":
+        return [{
+            "type": "Global variable usage",
+            "severity": "Medium",
+            "suggestion": "Avoid global variables.",
+            "line": get_line(node),
+        }]
+    return []
 
-# 10. Detect use of eval-like functions with user input
-def detect_eval_user_input(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'\beval\s*\(\s*\$_(GET|POST|REQUEST|COOKIE)\[', line):
-            issues.append({
-                "type": "eval() with user input",
-                "severity": "Critical",
-                "suggestion": "Never pass user input directly to eval().",
-                "line": i,
-            })
-    return issues
+def detect_empty_catch(node, source):
+    if node.type == "catch_clause":
+        body = node.child_by_field_name("body")
 
-# 11. Detect fopen/fread/fwrite with user input
-def detect_file_user_input(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'\b(fopen|fread|fwrite|file_put_contents)\s*\(\s*\$_(GET|POST|REQUEST|COOKIE)\[', line):
-            issues.append({
-                "type": "File operation with user input",
-                "severity": "High",
-                "suggestion": "Validate file paths before using them.",
-                "line": i,
-            })
-    return issues
-
-# 12. Detect use of md5() for passwords
-def detect_md5_password(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'\bmd5\s*\(', line) and re.search(r'password', line, re.IGNORECASE):
-            issues.append({
-                "type": "Weak password hashing",
-                "severity": "High",
-                "suggestion": "Use password_hash() instead of md5() for passwords.",
-                "line": i,
-            })
-    return issues
-
-# 13. Detect use of unserialize() on user input
-def detect_unserialize_user(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'\bunserialize\s*\(\s*\$_(GET|POST|REQUEST|COOKIE)\[', line):
-            issues.append({
-                "type": "Unserialize user input",
-                "severity": "Critical",
-                "suggestion": "Never unserialize untrusted user input — use json_decode() instead.",
-                "line": i,
-            })
-    return issues
-
-# 14. Detect error_reporting(0)
-def detect_error_reporting_off(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'error_reporting\s*\(\s*0\s*\)', line):
-            issues.append({
-                "type": "Suppressing errors",
-                "severity": "Medium",
-                "suggestion": "Avoid disabling error reporting in production.",
-                "line": i,
-            })
-    return issues
-
-# 15. Detect use of global variables
-def detect_global_variables(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'\bglobal\b', line):
-            issues.append({
-                "type": "Use of global variable",
-                "severity": "Medium",
-                "suggestion": "Avoid using global variables; prefer dependency injection.",
-                "line": i,
-            })
-    return issues
-
-# 16. Detect empty catch blocks
-def detect_empty_catch(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'catch\s*\([^\)]*\)\s*\{\s*\}', line):
-            issues.append({
+        if body and len(body.children) <= 2:  # { }
+            return [{
                 "type": "Empty catch block",
                 "severity": "Low",
-                "suggestion": "Handle exceptions properly; avoid empty catch.",
-                "line": i,
-            })
-    return issues
+                "suggestion": "Handle exceptions properly.",
+                "line": get_line(node),
+            }]
+    return []
 
-# 17. Detect isset() without validation
-def detect_isset_without_validation(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'isset\s*\(\s*\$_(GET|POST|REQUEST|COOKIE)\[', line) and not re.search(r'filter_var|intval|htmlspecialchars', line):
-            issues.append({
-                "type": "isset() without validation",
-                "severity": "Medium",
-                "suggestion": "Validate inputs after isset() check.",
-                "line": i,
-            })
-    return issues
+def detect_isset_without_validation(node, source):
+    if node.type == "function_call_expression":
+        func = node.child_by_field_name("function")
+        args = node.child_by_field_name("arguments")
 
-# 18. Detect eval() in included files
-def detect_eval_in_include(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'(include|require|include_once|require_once).*eval\s*\(', line):
-            issues.append({
-                "type": "eval() in included file",
+        if func and args:
+            if get_text(func, source) == "isset":
+                text = get_text(args, source)
+                if re.search(r'\$_(GET|POST|REQUEST|COOKIE)', text):
+                    if not re.search(r'filter_var|intval|htmlspecialchars', text):
+                        return [{
+                            "type": "isset() without validation",
+                            "severity": "Medium",
+                            "suggestion": "Validate input after isset().",
+                            "line": get_line(node),
+                        }]
+    return []
+
+def detect_eval_in_include(node, source):
+    if node.type in ["include_expression", "require_expression"]:
+        text = get_text(node, source)
+
+        if "eval(" in text:
+            return [{
+                "type": "eval in include",
                 "severity": "Critical",
-                "suggestion": "Avoid eval() in included/required files.",
-                "line": i,
-            })
-    return issues
+                "suggestion": "Avoid eval in included files.",
+                "line": get_line(node),
+            }]
+    return []
 
-# 19. Detect double assignment
-def detect_double_assignment(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'\$[a-zA-Z_]\w*\s*=\s*\$[a-zA-Z_]\w*\s*=', line):
-            issues.append({
+def detect_double_assignment(node, source):
+    if node.type == "assignment_expression":
+        text = get_text(node, source)
+
+        if re.search(r'\$[a-zA-Z_]\w*\s*=\s*\$[a-zA-Z_]\w*\s*=', text):
+            return [{
                 "type": "Double assignment",
                 "severity": "Low",
                 "suggestion": "Check for accidental double assignment.",
-                "line": i,
-            })
-    return issues
+                "line": get_line(node),
+            }]
+    return []
+#This one cannot be reliably done via AST, so we keep it as program-level regex
+def detect_unclosed_html_tags(node, source):
+    if node.type != "program":
+        return []
 
-# 20. Detect unclosed HTML tags in PHP output
-def detect_unclosed_html_tags(source):
     issues = []
-    # simple detection for echo/print statements
-    for i, line in enumerate(source.splitlines(), start=1):
+    for i, line in enumerate(source.splitlines(), 1):
         if re.search(r'\b(echo|print)\b.*<[^>]+[^/]>[^<]*$', line):
             issues.append({
                 "type": "Potential unclosed HTML tag",
                 "severity": "Low",
-                "suggestion": "Check outputted HTML for unclosed tags.",
+                "suggestion": "Check HTML output.",
                 "line": i,
             })
     return issues
 
-# List of all PHP rules
+# RULE LIST
 rules = [
     detect_eval_usage_php,
     detect_shell_exec,
     detect_dynamic_include,
-    detect_short_tags,
     detect_mysql_deprecated,
     detect_unescaped_output,
     detect_unsanitized_input,
     detect_base64_decode,
     detect_assignment_in_if,
     detect_eval_user_input,
-    detect_file_user_input,
     detect_md5_password,
     detect_unserialize_user,
+    detect_short_tags,
+    detect_file_user_input,
     detect_error_reporting_off,
     detect_global_variables,
     detect_empty_catch,

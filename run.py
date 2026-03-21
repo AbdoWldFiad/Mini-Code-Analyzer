@@ -1,12 +1,21 @@
-import sys
+#!/usr/bin/env python3
 import os
+import sys
+import argparse
+from pathlib import Path
 from analyzer import SecureCodeAnalyzer
 from report import print_report
 from autofix import apply_fixes
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.panel import Panel
+from rich.text import Text
 
-REPORTS_DIR = "reports"  # centralized folder for all JSON reports
+console = Console()
+REPORTS_DIR = Path("reports")
+REPORTS_DIR.mkdir(exist_ok=True)
 
-def detect_framework(root):
+def detect_framework(root: Path):
     files = [f.lower() for f in os.listdir(root)]
     if "manage.py" in files:
         return "django"
@@ -16,38 +25,77 @@ def detect_framework(root):
         return "react"
     return None
 
-def analyze_directory(directory, autofix=False, dry_run=False, json_report=False):
+def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report=False):
     framework = detect_framework(directory)
-    print(f" Detected framework: {framework or 'None'}")
+    console.print(f"[bold cyan]Detected framework:[/bold cyan] {framework or 'None'}\n")
 
+    # Gather all files first
+    all_files = []
     for root, _, files in os.walk(directory):
         for f in files:
-            path = os.path.join(root, f)
+            all_files.append(Path(root) / f)
 
-            # Determine language by extension
-            if f.endswith(".py"):
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        transient=True,
+        console=console
+    ) as progress:
+
+        task = progress.add_task("Analyzing files...", total=len(all_files))
+
+        for path in all_files:
+            # Determine language
+            lang = None
+            if path.suffix == ".py":
                 lang = "python"
-            elif f.endswith(".js") or f.endswith(".jsx"):
+            elif path.suffix in [".js", ".jsx"]:
                 lang = "javascript"
-            elif f.endswith(".html"):
+            elif path.suffix == ".html":
                 lang = "html"
-            elif f.endswith(".php"):
+            elif path.suffix == ".php":
                 lang = "php"
             else:
+                progress.advance(task)
                 continue
 
             analyzer = SecureCodeAnalyzer(language=lang, framework=framework)
-            issues = analyzer.analyze_file(path)
-            print_report(path, issues)
+            issues = analyzer.analyze_file(str(path))
+            print_report(str(path), issues)
 
             # Apply fixes, dry-run, or generate centralized JSON report
             if autofix or dry_run or json_report:
-                apply_fixes(path, issues, dry_run=dry_run, output_json=json_report, report_dir=REPORTS_DIR)
+                apply_fixes(
+                    str(path),
+                    issues,
+                    dry_run=dry_run,
+                    output_json=json_report,
+                    report_dir=str(REPORTS_DIR)
+                )
+
+            progress.advance(task)
+
+    console.print(Panel(Text("Analysis Complete!", style="bold green"), expand=False))
+
+def parse_args():
+    parser = argparse.ArgumentParser( prog="mini-analyzer", description="Mini Code Analyzer – Static Security Analysis Tool" )
+
+    parser.add_argument( "path", nargs="?", default="test_samples", help="Target file or directory to analyze (default: test_samples)" )
+
+    parser.add_argument("--fix", action="store_true", help="Automatically apply safe fixes")
+    parser.add_argument("--dry-run", action="store_true", help="Show fixes without modifying files")
+    parser.add_argument("--json", action="store_true", help="Generate centralized JSON reports")
+
+    return parser.parse_args()
+
+def main():
+    args = parse_args()
+    target = Path(args.path)
+    if not target.exists():
+        console.print(f"[bold red]Error:[/bold red] Path '{target}' does not exist.")
+        sys.exit(1)
+
+    analyze_directory( target, autofix=args.fix, dry_run=args.dry_run, json_report=args.json )
 
 if __name__ == "__main__":
-    target = sys.argv[1] if len(sys.argv) > 1 else "test_samples"
-    autofix = "--fix" in sys.argv
-    dry_run = "--dry-run" in sys.argv
-    json_report = "--json" in sys.argv
-
-    analyze_directory(target, autofix=autofix, dry_run=dry_run, json_report=json_report)
+    main()

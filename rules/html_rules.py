@@ -1,309 +1,302 @@
 import re
-from bs4 import BeautifulSoup
 
-# 1. Detect inline JavaScript (onclick, onload, etc.)
-def detect_inline_js(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'on\w+\s*=', line, re.IGNORECASE):
-            issues.append({
+# Helpers
+def get_text(node, source):
+    return source[node.start_byte:node.end_byte]
+
+def get_line(node):
+    return node.start_point[0] + 1
+
+
+# 1. Inline JS (onclick, etc.)
+def detect_inline_js(node, source):
+    if node.type == "attribute":
+        text = get_text(node, source)
+        if re.search(r'on\w+\s*=', text):
+            return [{
                 "type": "Inline JavaScript",
-                "severity": "High",
-                "suggestion": "Move JavaScript to external .js file.",
-                "line": i,
-            })
-    return issues
-
-# 2. Detect missing alt attribute on <img>
-def detect_missing_alt(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        for match in re.finditer(r'<img\b[^>]*>', line, re.IGNORECASE):
-            if not re.search(r'alt\s*=', match.group(0), re.IGNORECASE):
-                issues.append({
-                    "type": "Missing alt attribute",
-                    "severity": "Medium",
-                    "suggestion": "Add alt text to <img> for accessibility.",
-                    "line": i,
-                })
-    return issues
-
-# 3. Detect empty href attributes
-def detect_empty_href(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'<a\b[^>]*href\s*=\s*["\']\s*["\']', line, re.IGNORECASE):
-            issues.append({
-                "type": "Empty href",
                 "severity": "Medium",
-                "suggestion": "Provide a valid URL in href.",
-                "line": i,
-            })
-    return issues
+                "line": get_line(node),
+            }]
+    return []
 
-# 4. Detect <script> tags with inline code
-def detect_inline_script(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if '<script' in line and not re.search(r'src\s*=', line, re.IGNORECASE):
-            issues.append({
-                "type": "Inline <script>",
+
+# 2. Missing alt in img
+def detect_missing_alt(node, source):
+    if node.type == "element":
+        if get_text(node, source).startswith("<img"):
+            if "alt=" not in get_text(node, source):
+                return [{
+                    "type": "Missing alt attribute",
+                    "severity": "Low",
+                    "line": get_line(node),
+                }]
+    return []
+
+
+# 3. Empty href
+def detect_empty_href(node, source):
+    if node.type == "attribute":
+        text = get_text(node, source)
+        if re.search(r'href\s*=\s*["\']?\s*["\']', text):
+            return [{
+                "type": "Empty href",
+                "severity": "Low",
+                "line": get_line(node),
+            }]
+    return []
+
+
+# 4. Inline <script>
+def detect_inline_script(node, source):
+    if node.type == "script_element":
+        text = get_text(node, source)
+        if "<script" in text and "src=" not in text:
+            return [{
+                "type": "Inline script",
+                "severity": "Medium",
+                "line": get_line(node),
+            }]
+    return []
+
+
+# 5. iframe without sandbox
+def detect_iframe_no_sandbox(node, source):
+    if node.type == "element":
+        text = get_text(node, source)
+        if text.startswith("<iframe") and "sandbox" not in text:
+            return [{
+                "type": "Iframe without sandbox",
                 "severity": "High",
-                "suggestion": "Move JavaScript to external file with src.",
-                "line": i,
-            })
-    return issues
+                "line": get_line(node),
+            }]
+    return []
 
-# 5. Detect <iframe> without sandbox attribute
-def detect_iframe_no_sandbox(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if '<iframe' in line and 'sandbox' not in line.lower():
-            issues.append({
-                "type": "<iframe> without sandbox",
-                "severity": "High",
-                "suggestion": "Add sandbox attribute to <iframe> for security.",
-                "line": i,
-            })
-    return issues
 
-# 6. Detect deprecated tags like <center>, <font>
-def detect_deprecated_tags(source):
-    issues = []
-    deprecated = ['<center', '<font', '<marquee', '<bgsound']
-    for i, line in enumerate(source.splitlines(), start=1):
-        if any(tag in line.lower() for tag in deprecated):
-            issues.append({
+# 6. Deprecated tags
+def detect_deprecated_tags(node, source):
+    if node.type == "element":
+        text = get_text(node, source)
+        if re.search(r'<(font|center|marquee)\b', text):
+            return [{
                 "type": "Deprecated HTML tag",
                 "severity": "Medium",
                 "suggestion": "Avoid using deprecated tags; use CSS instead.",
-                "line": i,
-            })
-    return issues
+                "line": get_line(node),
+            }]
+    return []
 
-# 7. Detect inline styles
-def detect_inline_styles(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if 'style=' in line.lower():
-            issues.append({
-                "type": "Inline style",
+
+# 7. Inline styles
+def detect_inline_styles(node, source):
+    if node.type == "attribute":
+        if "style=" in get_text(node, source):
+            return [{
+                "type": "Inline styles",
                 "severity": "Low",
-                "suggestion": "Use external CSS instead of inline styles.",
-                "line": i,
-            })
-    return issues
+                "line": get_line(node),
+            }]
+    return []
 
-# 8. Detect <form> without action attribute
-def detect_form_no_action(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if '<form' in line and 'action=' not in line.lower():
-            issues.append({
-                "type": "<form> missing action",
-                "severity": "High",
-                "suggestion": "Add action attribute to <form>.",
-                "line": i,
-            })
-    return issues
 
-# 9. Detect <a> with javascript: in href
-def detect_js_href(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'<a\b[^>]*href\s*=\s*["\']\s*javascript:', line, re.IGNORECASE):
-            issues.append({
-                "type": "<a> with javascript: href",
-                "severity": "High",
-                "suggestion": "Avoid using javascript: in href; use event listeners.",
-                "line": i,
-            })
-    return issues
-
-# 10. Detect <input type="password"> without autocomplete="off"
-def detect_password_autocomplete(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'<input\b[^>]*type\s*=\s*["\']password', line, re.IGNORECASE):
-            if 'autocomplete=' not in line.lower():
-                issues.append({
-                    "type": "Password input without autocomplete",
-                    "severity": "Medium",
-                    "suggestion": "Add autocomplete='off' to password inputs for security.",
-                    "line": i,
-                })
-    return issues
-
-# 11. Detect missing lang attribute on <html>
-def detect_html_no_lang(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if '<html' in line.lower() and 'lang=' not in line.lower():
-            issues.append({
-                "type": "<html> missing lang attribute",
+# 8. Form without action
+def detect_form_no_action(node, source):
+    if node.type == "element":
+        text = get_text(node, source)
+        if text.startswith("<form") and "action=" not in text:
+            return [{
+                "type": "Form without action",
                 "severity": "Medium",
-                "suggestion": "Add lang attribute for accessibility.",
-                "line": i,
-            })
-    return issues
+                "line": get_line(node),
+            }]
+    return []
 
-# 12. Detect <meta name="viewport"> missing
-def detect_viewport_meta(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if '<head' in line.lower() and 'meta name="viewport"' not in source.lower():
-            issues.append({
-                "type": "Missing viewport meta",
-                "severity": "Low",
-                "suggestion": "Add <meta name='viewport'> for responsive design.",
-                "line": i,
-            })
-            break
-    return issues
 
-# 13. Detect <img> with src pointing to http (non-https)
-def detect_img_http(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'<img\b[^>]*src\s*=\s*["\']http:', line, re.IGNORECASE):
-            issues.append({
-                "type": "Non-HTTPS image",
+# 9. javascript: href
+def detect_js_href(node, source):
+    if node.type == "attribute":
+        text = get_text(node, source)
+        if "javascript:" in text:
+            return [{
+                "type": "javascript: href",
+                "severity": "High",
+                "line": get_line(node),
+            }]
+    return []
+
+
+# 10. Password autocomplete
+def detect_password_autocomplete(node, source):
+    if node.type == "element":
+        text = get_text(node, source)
+        if "type=\"password\"" in text and "autocomplete" not in text:
+            return [{
+                "type": "Password without autocomplete control",
                 "severity": "Medium",
-                "suggestion": "Use HTTPS for image sources.",
-                "line": i,
-            })
-    return issues
+                "line": get_line(node),
+            }]
+    return []
 
-# 14. Detect <a> with target="_blank" missing rel="noopener"
-def detect_blank_no_rel(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'<a\b[^>]*target\s*=\s*"_blank"', line, re.IGNORECASE):
-            if 'rel=' not in line.lower():
-                issues.append({
-                    "type": '<a target="_blank"> missing rel',
-                    "severity": "Medium",
-                    "suggestion": "Add rel='noopener' to links with target='_blank'.",
-                    "line": i,
-                })
-    return issues
 
-# 15. Detect multiple <title> tags
-def detect_multiple_title(source):
-    issues = []
-    count = sum(1 for line in source.splitlines() if '<title>' in line.lower())
-    if count > 1:
-        issues.append({
-            "type": "Multiple <title> tags",
+# 11. Missing lang (run once)
+def detect_html_no_lang(node, source):
+    if node.type != "document":
+        return []
+    if "<html" in source and "lang=" not in source:
+        return [{
+            "type": "Missing lang attribute",
             "severity": "Low",
             "suggestion": "Use only one <title> tag per document.",
             "line": 1,
-        })
-    return issues
+        }]
+    return []
 
-# 16. Detect missing charset <meta charset="...">
-def detect_missing_charset(source):
-    issues = []
-    if '<meta charset=' not in source.lower():
-        issues.append({
-            "type": "Missing charset meta",
+
+# 12. Missing viewport
+def detect_viewport_meta(node, source):
+    if node.type != "document":
+        return []
+    if "viewport" not in source:
+        return [{
+            "type": "Missing viewport meta",
             "severity": "Low",
             "suggestion": "Add <meta charset='UTF-8'> inside <head>.",
             "line": 1,
-        })
-    return issues
+        }]
+    return []
 
-# 17. Detect <link rel="stylesheet"> using HTTP
-def detect_css_http(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'<link\b[^>]*rel\s*=\s*["\']stylesheet["\'][^>]*href\s*=\s*["\']http:', line, re.IGNORECASE):
-            issues.append({
-                "type": "Non-HTTPS CSS",
+
+# 13. HTTP images
+def detect_img_http(node, source):
+    if node.type == "element":
+        text = get_text(node, source)
+        if "<img" in text and "http://" in text:
+            return [{
+                "type": "Insecure image source",
                 "severity": "Medium",
-                "suggestion": "Use HTTPS for CSS files.",
-                "line": i,
-            })
-    return issues
+                "line": get_line(node),
+            }]
+    return []
 
-# 18. Detect <script src="..."> using HTTP
-def detect_script_http(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'<script\b[^>]*src\s*=\s*["\']http:', line, re.IGNORECASE):
-            issues.append({
-                "type": "Non-HTTPS script",
-                "severity": "Medium",
-                "suggestion": "Use HTTPS for external scripts.",
-                "line": i,
-            })
-    return issues
 
-# 19. Detect <audio> or <video> missing controls
-def detect_media_no_controls(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'<(audio|video)\b', line, re.IGNORECASE) and 'controls' not in line.lower():
-            issues.append({
-                "type": "<audio> or <video> missing controls",
-                "severity": "Low",
-                "suggestion": "Add controls attribute to media elements.",
-                "line": i,
-            })
-    return issues
-
-# 20. Detect <input> missing type attribute
-def detect_input_no_type(source):
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if re.search(r'<input\b', line, re.IGNORECASE) and 'type=' not in line.lower():
-            issues.append({
-                "type": "<input> missing type",
-                "severity": "Low",
-                "suggestion": "Specify input type for accessibility and security.",
-                "line": i,
-            })
-    return issues
-
-# 21. Detect attributes like onclick=, onmouseover= which may allow injection
-def detect_inline_event_handlers(source):
-    pattern = re.compile(r'on\w+="[^"]+"', re.IGNORECASE)
-    issues = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        if pattern.search(line):
-            issues.append({
-                "type": "Inline event handler detected",
-                "severity": "Medium",
-                "suggestion": "Avoid inline event handlers (e.g., onclick=). Use external JS event listeners.",
-                "line": i,
-            })
-    return issues
-
-# 22. Detect forms without CSRF protection tokens
-def detect_missing_csrf_token(source): 
-    soup = BeautifulSoup(source, "html.parser")
-    issues = []
-    for form in soup.find_all("form"):
-        if not form.find("input", {"name": re.compile("csrf", re.I)}):
-            issues.append({
-                "type": "Form missing CSRF token",
+# 14. target=_blank without rel
+def detect_blank_no_rel(node, source):
+    if node.type == "element":
+        text = get_text(node, source)
+        if 'target="_blank"' in text and "rel=" not in text:
+            return [{
+                "type": "target=_blank without rel",
                 "severity": "High",
-                "suggestion": "Ensure every form includes a CSRF protection token.",
-                "line": get_line_number(source, str(form))
-            })
-    return issues
+                "line": get_line(node),
+            }]
+    return []
 
 
-def get_line_number(source, snippet):
-    """Helper to find the approximate line number of a snippet."""
-    lines = source.splitlines()
-    for i, line in enumerate(lines, start=1):
-        if snippet.strip() in line:
-            return i
-    return "Unknown"
+# 15. Multiple title tags
+def detect_multiple_title(node, source):
+    if node.type != "document":
+        return []
+    if len(re.findall(r'<title>', source)) > 1:
+        return [{
+            "type": "Multiple title tags",
+            "severity": "Low",
+            "line": 1,
+        }]
+    return []
 
 
-# List of all rules
+# 16. Missing charset
+def detect_missing_charset(node, source):
+    if node.type != "document":
+        return []
+    if "charset" not in source:
+        return [{
+            "type": "Missing charset",
+            "severity": "Medium",
+            "line": 1,
+        }]
+    return []
+
+
+# 17. CSS over HTTP
+def detect_css_http(node, source):
+    if node.type == "element":
+        text = get_text(node, source)
+        if "<link" in text and "http://" in text:
+            return [{
+                "type": "CSS over HTTP",
+                "severity": "Medium",
+                "line": get_line(node),
+            }]
+    return []
+
+
+# 18. Script over HTTP
+def detect_script_http(node, source):
+    if node.type == "script_element":
+        text = get_text(node, source)
+        if "http://" in text:
+            return [{
+                "type": "Script over HTTP",
+                "severity": "High",
+                "line": get_line(node),
+            }]
+    return []
+
+
+# 19. Media without controls
+def detect_media_no_controls(node, source):
+    if node.type == "element":
+        text = get_text(node, source)
+        if re.search(r'<(video|audio)\b', text) and "controls" not in text:
+            return [{
+                "type": "Media without controls",
+                "severity": "Low",
+                "line": get_line(node),
+            }]
+    return []
+
+
+# 20. Input without type
+def detect_input_no_type(node, source):
+    if node.type == "element":
+        text = get_text(node, source)
+        if text.startswith("<input") and "type=" not in text:
+            return [{
+                "type": "Input without type",
+                "severity": "Low",
+                "line": get_line(node),
+            }]
+    return []
+
+
+# 21. Inline event handlers
+def detect_inline_event_handlers(node, source):
+    if node.type == "attribute":
+        if re.match(r'on\w+=', get_text(node, source)):
+            return [{
+                "type": "Inline event handler",
+                "severity": "Medium",
+                "line": get_line(node),
+            }]
+    return []
+
+
+# 22. Missing CSRF token (heuristic)
+def detect_missing_csrf_token(node, source):
+    if node.type == "element":
+        text = get_text(node, source)
+        if text.startswith("<form"):
+            if not re.search(r'csrf|token', text, re.IGNORECASE):
+                return [{
+                    "type": "Missing CSRF token",
+                    "severity": "High",
+                    "line": get_line(node),
+                }]
+    return []
+
+
+# FINAL RULE LIST
 rules = [
     detect_inline_js,
     detect_missing_alt,

@@ -1,7 +1,7 @@
 import ast
 
 # 1. Use of eval()
-def detect_eval_usage(node):
+def detect_eval_usage(node, context):
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "eval":
         return {
             "type": "Use of eval()",
@@ -11,7 +11,7 @@ def detect_eval_usage(node):
     return None
 
 # 2. Use of exec()
-def detect_exec_usage(node):
+def detect_exec_usage(node, context):
     # Safely check for old Python 2 'ast.Exec' node (if defined)
     if hasattr(ast, "Exec") and isinstance(node, ast.Exec):
         return {
@@ -31,7 +31,7 @@ def detect_exec_usage(node):
     return None
 
 # 3. Hardcoded password in variables
-def detect_hardcoded_password(node):
+def detect_hardcoded_password(node, context):
     if isinstance(node, ast.Assign):
         for target in node.targets:
             if isinstance(target, ast.Name) and "pass" in target.id.lower():
@@ -44,7 +44,7 @@ def detect_hardcoded_password(node):
     return None
 
 # 4. Use of pickle.loads() AKA: insecure deserialization
-def detect_pickle_loads(node):
+def detect_pickle_loads(node, context):
     if isinstance(node, ast.Call):
         if isinstance(node.func, ast.Attribute) and node.func.attr == "loads":
             if isinstance(node.func.value, ast.Name) and node.func.value.id == "pickle":
@@ -56,7 +56,7 @@ def detect_pickle_loads(node):
     return None
 
 # 5. Use of subprocess.Popen with shell=True
-def detect_shell_true(node):
+def detect_shell_true(node, context):
     if isinstance(node, ast.Call):
         if isinstance(node.func, ast.Attribute) and node.func.attr == "Popen":
             for kw in node.keywords:
@@ -69,7 +69,7 @@ def detect_shell_true(node):
     return None
 
 # 6. SQL queries using string concatenation
-def detect_sql_string_concat(node):
+def detect_sql_string_concat(node, context):
     if isinstance(node, ast.Call):
         if isinstance(node.func, ast.Attribute) and node.func.attr == "execute":
             if node.args:
@@ -83,7 +83,7 @@ def detect_sql_string_concat(node):
     return None
 
 # 7. Use of yaml.load() without Loader=safe
-def detect_yaml_unsafe_load(node):
+def detect_yaml_unsafe_load(node, context):
     if isinstance(node, ast.Call):
         if isinstance(node.func, ast.Attribute) and node.func.attr == "load":
             if isinstance(node.func.value, ast.Name) and node.func.value.id == "yaml":
@@ -96,7 +96,7 @@ def detect_yaml_unsafe_load(node):
     return None
 
 # 8. Use of weak hash algorithms (e.g., MD5)
-def detect_weak_hash_usage(node):
+def detect_weak_hash_usage(node, context):
     if isinstance(node, ast.Call):
         if isinstance(node.func, ast.Attribute):
             if node.func.attr in ["md5", "sha1"]:
@@ -108,7 +108,7 @@ def detect_weak_hash_usage(node):
     return None
 
 # 9. Insecure random (not using secrets)
-def detect_insecure_random(node):
+def detect_insecure_random(node, context):
     if isinstance(node, ast.Call):
         if isinstance(node.func, ast.Attribute):
             if isinstance(node.func.value, ast.Name) and node.func.value.id == "random":
@@ -120,7 +120,7 @@ def detect_insecure_random(node):
     return None
 
 #10. Use of input() in Python 2/3
-def detect_raw_input_or_input(node):
+def detect_raw_input_or_input(node, context):
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
         if node.func.id in ["input", "raw_input"]:
             return {
@@ -131,7 +131,7 @@ def detect_raw_input_or_input(node):
     return None
 
 # 11. Insecure use of os.system() | Like what i did in run.py lol
-def detect_os_system_usage(node):
+def detect_os_system_usage(node, context):
     if isinstance(node, ast.Call):
         if isinstance(node.func, ast.Attribute) or isinstance(node.func, ast.Name):
             if getattr(node.func, 'attr', '') == 'system' or getattr(node.func, 'id', '') == 'system':
@@ -144,7 +144,7 @@ def detect_os_system_usage(node):
     return None
 
 # 12. Use of getattr() with dynamic input
-def detect_dynamic_getattr(node):
+def detect_dynamic_getattr(node, context):
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "getattr":
         if len(node.args) >= 2:
             second_arg = node.args[1]
@@ -157,7 +157,7 @@ def detect_dynamic_getattr(node):
     return None
 
 # 13. Use of __import__() AKA: dynamic imports
-def detect_dynamic_import(node):
+def detect_dynamic_import(node, context):
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "__import__":
         return {
             "type": "Dynamic import using __import__()",
@@ -167,7 +167,7 @@ def detect_dynamic_import(node):
     return None
 
 # 14. Use of marshal module
-def detect_marshal_import(node):
+def detect_marshal_import(node, context):
     if isinstance(node, ast.Import):
         for alias in node.names:
             if alias.name == "marshal":
@@ -179,7 +179,7 @@ def detect_marshal_import(node):
     return None
 
 # 15. Use of tempfile.mktemp() (unsafe temp file)
-def detect_unsafe_tempfile(node):
+def detect_unsafe_tempfile(node, context):
     if isinstance(node, ast.Call):
         if isinstance(node.func, ast.Attribute) and node.func.attr == "mktemp":
             if isinstance(node.func.value, ast.Name) and node.func.value.id == "tempfile":
@@ -191,7 +191,7 @@ def detect_unsafe_tempfile(node):
     return None
 
 # 16. Use of open() without mode (defaulting to read/write)
-def detect_open_without_mode(node):
+def detect_open_without_mode(node, context):
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "open":
         if len(node.args) < 2:
             return {
@@ -202,7 +202,7 @@ def detect_open_without_mode(node):
     return None
 
 # 17. Using assert in production code
-def detect_assert_statements(node):
+def detect_assert_statements(node, context):
     if isinstance(node, ast.Assert):
         return {
             "type": "Use of assert statement",
@@ -212,7 +212,7 @@ def detect_assert_statements(node):
     return None
 
 # 18. Use of Flask with debug=True
-def detect_flask_debug(node):
+def detect_flask_debug(node, context):
     if isinstance(node, ast.Call):
         if isinstance(node.func, ast.Attribute) and node.func.attr == "run":
             for kw in node.keywords:
@@ -225,7 +225,7 @@ def detect_flask_debug(node):
     return None
 
 # 19. Use of requests without HTTPS
-def detect_http_requests(node):
+def detect_http_requests(node, context):
     if isinstance(node, ast.Call):
         if isinstance(node.func, ast.Attribute) and node.func.attr in ["get", "post", "put", "delete"]:
             if isinstance(node.func.value, ast.Name) and node.func.value.id == "requests":
@@ -241,7 +241,7 @@ def detect_http_requests(node):
     return None
 
 # 20. Use of JWT decoding without signature verification
-def detect_jwt_decode_no_verify(node):
+def detect_jwt_decode_no_verify(node, context):
     if isinstance(node, ast.Call):
         if isinstance(node.func, ast.Attribute) and node.func.attr == "decode":
             if isinstance(node.func.value, ast.Name) and node.func.value.id == "jwt":

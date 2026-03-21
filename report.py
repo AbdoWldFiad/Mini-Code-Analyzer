@@ -1,29 +1,69 @@
+from rich.console import Console
+from rich.table import Table
+
+console = Console()
+
+SEVERITY_COLORS = {
+    "low": "green",
+    "medium": "yellow",
+    "high": "red",
+    "critical": "bold red",
+    "n/a": "white",
+}
+
+
 def print_report(filepath, issues):
-    print(f"\nAnalysis Report for {filepath}:")
+    console.print(f"\n[bold underline cyan]Analysis Report for {filepath}[/bold underline cyan]\n")
 
     if not issues:
-        print("\033[92m No security issues found.\033[0m")
-        return
+        console.print("[bold green]No security issues found.[/bold green]\n")
+        return {}
 
-    # --- Step 1: Group issues ---
+    # -----------------------------
+    # CLEAN GROUPING
+    # -----------------------------
     grouped = {}
+    severity_count = {}
+
     for issue in issues:
-        key = (issue["type"], issue["severity"], issue["suggestion"])
-        if key not in grouped:
-            grouped[key] = {
-                "type": issue["type"],
-                "severity": issue["severity"],
-                "suggestion": issue["suggestion"],
-                "lines": []
+        issue_type = issue.get("type", "Unknown")
+        sev = issue.get("severity", "n/a").lower()
+        line = issue.get("line", None)
+
+        severity_count[sev] = severity_count.get(sev, 0) + 1
+
+        # KEY = only by TYPE (important fix)
+        if issue_type not in grouped:
+            grouped[issue_type] = {
+                "type": issue_type,
+                "severity": sev,
+                "suggestion": issue.get("suggestion", "None"),
+                "lines": set(),   # use set to remove duplicates
             }
-        grouped[key]["lines"].append(issue["line"])
 
-    # --- Step 2: Print grouped issues ---
+        if line is not None:
+            grouped[issue_type]["lines"].add(line)
+
+    # -----------------------------
+    # PRINT TABLE
+    # -----------------------------
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Type", style="bold red")
+    table.add_column("Severity")
+    table.add_column("Lines", style="cyan")
+    table.add_column("Suggestion", style="green")
+
     for issue in grouped.values():
-        lines_str = ", ".join(str(l) for l in sorted(issue["lines"]))
+        color = SEVERITY_COLORS.get(issue["severity"], "white")
 
-        print(f"\033[1;91m[!] Issue:\033[0m \033[91m{issue['type']}\033[0m")
-        print(f"\033[2m    Lines:\033[0m \033[93m{lines_str}\033[0m")
-        print(f"\033[2mSeverity:\033[0m \033[95m{issue['severity']}\033[0m")
-        print(f"\033[2mSuggestion:\033[0m \033[96m{issue['suggestion']}\033[0m")
-        print()  # blank line between issues
+        lines_str = ", ".join(map(str, sorted(issue["lines"]))) if issue["lines"] else "-"
+
+        table.add_row(
+            issue["type"],
+            f"[{color}]{issue['severity']}[/{color}]",
+            lines_str,
+            issue["suggestion"]
+        )
+
+    console.print(table)
+    return severity_count
