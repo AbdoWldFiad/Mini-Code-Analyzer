@@ -1,13 +1,10 @@
 import re
 
-# Helper: extract node text
 def get_text(node, source):
     return source[node.start_byte:node.end_byte]
 
-# Helper: line number
 def get_line(node):
     return node.start_point[0] + 1
-
 
 # 1. Detect eval()
 def detect_eval_usage_php(node, source):
@@ -18,10 +15,12 @@ def detect_eval_usage_php(node, source):
                 "type": "Use of eval()",
                 "severity": "High",
                 "suggestion": "Avoid using eval().",
+                "fixable": True,
+                "fix": "# TODO: Replace eval safely\n# Use ast.literal_eval() or other safe alternatives.",
                 "line": get_line(node),
+                "confidence": "High"
             }]
     return []
-
 
 # 2. Detect shell execution
 def detect_shell_exec(node, source):
@@ -34,10 +33,12 @@ def detect_shell_exec(node, source):
                     "type": "Shell execution",
                     "severity": "High",
                     "suggestion": "Avoid executing shell commands.",
+                    "fixable": True,
+                    "fix": "# TODO: Review shell execution for security.",
                     "line": get_line(node),
+                    "confidence": "High"
                 }]
     return []
-
 
 # 3. Dynamic include/require
 def detect_dynamic_include(node, source):
@@ -48,10 +49,12 @@ def detect_dynamic_include(node, source):
                 "type": "Dynamic include/require",
                 "severity": "High",
                 "suggestion": "Avoid dynamic file inclusion.",
+                "fixable": True,
+                "fix": "# TODO: Replace dynamic include with static paths.",
                 "line": get_line(node),
+                "confidence": "High"
             }]
     return []
-
 
 # 4. Deprecated mysql_* functions
 def detect_mysql_deprecated(node, source):
@@ -63,11 +66,13 @@ def detect_mysql_deprecated(node, source):
                 return [{
                     "type": "Deprecated mysql_*",
                     "severity": "High",
-                    "suggestion": "Use mysqli or PDO.",
+                    "suggestion": "Use mysqli or PDO instead.",
+                    "fixable": True,
+                    "fix": "# TODO: Replace mysql_* functions with mysqli or PDO.",
                     "line": get_line(node),
+                    "confidence": "High"
                 }]
     return []
-
 
 # 5. Unescaped echo/print
 def detect_unescaped_output(node, source):
@@ -78,10 +83,12 @@ def detect_unescaped_output(node, source):
                 "type": "Unescaped output",
                 "severity": "High",
                 "suggestion": "Escape output to prevent XSS.",
+                "fixable": True,
+                "fix": "# TODO: Add escaping function like htmlspecialchars() to output.",
                 "line": get_line(node),
+                "confidence": "High"
             }]
     return []
-
 
 # 6. Unsanitized input ($_GET, $_POST)
 def detect_unsanitized_input(node, source):
@@ -92,10 +99,12 @@ def detect_unsanitized_input(node, source):
                 "type": "Unsanitized input",
                 "severity": "High",
                 "suggestion": "Sanitize user input.",
+                "fixable": True,
+                "fix": "# TODO: Sanitize this user input before usage.",
                 "line": get_line(node),
+                "confidence": "High"
             }]
     return []
-
 
 # 7. base64_decode usage
 def detect_base64_decode(node, source):
@@ -106,10 +115,10 @@ def detect_base64_decode(node, source):
                 "type": "base64_decode usage",
                 "severity": "Medium",
                 "suggestion": "Ensure it's not hiding malicious code.",
+                "fixable": False,
                 "line": get_line(node),
             }]
     return []
-
 
 # 8. Assignment inside condition
 def detect_assignment_in_if(node, source):
@@ -121,11 +130,13 @@ def detect_assignment_in_if(node, source):
                 return [{
                     "type": "Assignment in condition",
                     "severity": "High",
-                    "suggestion": "Use comparison operators.",
+                    "suggestion": "Use comparison operators instead of assignment in conditions.",
+                    "fixable": True,
+                    "fix": "# TODO: Replace assignment with comparison operator.",
                     "line": get_line(node),
+                    "confidence": "High"
                 }]
     return []
-
 
 # 9. eval with user input
 def detect_eval_user_input(node, source):
@@ -140,10 +151,12 @@ def detect_eval_user_input(node, source):
                         "type": "eval() with user input",
                         "severity": "Critical",
                         "suggestion": "Never pass user input to eval().",
+                        "fixable": True,
+                        "fix": "# TODO: Remove eval on user input immediately; very dangerous.",
                         "line": get_line(node),
+                        "confidence": "High"
                     }]
     return []
-
 
 # 10. md5 password hashing
 def detect_md5_password(node, source):
@@ -153,11 +166,13 @@ def detect_md5_password(node, source):
             return [{
                 "type": "Weak hashing (md5)",
                 "severity": "High",
-                "suggestion": "Use password_hash().",
+                "suggestion": "Use password_hash() instead.",
+                "fixable": True,
+                "fix": "# TODO: Replace md5 with password_hash().",
                 "line": get_line(node),
+                "confidence": "High"
             }]
     return []
-
 
 # 11. unserialize user input
 def detect_unserialize_user(node, source):
@@ -171,10 +186,13 @@ def detect_unserialize_user(node, source):
                     return [{
                         "type": "Unserialize user input",
                         "severity": "Critical",
+                        "suggestion": "Avoid unserializing user input.",
+                        "fixable": True,
+                        "fix": "# TODO: Validate or avoid unserialize on user input.",
                         "line": get_line(node),
+                        "confidence": "High"
                     }]
     return []
-
 
 # 12. Short PHP tags (run once)
 def detect_short_tags(node, source):
@@ -187,10 +205,14 @@ def detect_short_tags(node, source):
             issues.append({
                 "type": "Short PHP tag",
                 "severity": "Low",
+                "fixable": True,
+                "fix": "# TODO: Replace short PHP tag with <?php.",
                 "line": i,
+                "confidence": "Medium"
             })
     return issues
 
+# 13. File operations with user input
 def detect_file_user_input(node, source):
     if node.type == "function_call_expression":
         func = node.child_by_field_name("function")
@@ -204,10 +226,14 @@ def detect_file_user_input(node, source):
                         "type": "File operation with user input",
                         "severity": "High",
                         "suggestion": "Validate file paths before use.",
+                        "fixable": True,
+                        "fix": "# TODO: Validate file paths from user input.",
                         "line": get_line(node),
+                        "confidence": "High"
                     }]
     return []
 
+# 14. Error reporting off
 def detect_error_reporting_off(node, source):
     if node.type == "function_call_expression":
         func = node.child_by_field_name("function")
@@ -220,38 +246,48 @@ def detect_error_reporting_off(node, source):
                         "type": "Error reporting disabled",
                         "severity": "Medium",
                         "suggestion": "Avoid disabling error reporting.",
+                        "fixable": True,
+                        "fix": "# TODO: Avoid disabling error reporting.",
                         "line": get_line(node),
+                        "confidence": "Medium"
                     }]
     return []
 
+# 15. Global variables
 def detect_global_variables(node, source):
     if node.type == "global_declaration":
         return [{
             "type": "Global variable usage",
             "severity": "Medium",
             "suggestion": "Avoid global variables.",
+            "fixable": True,
+            "fix": "# TODO: Refactor global variables.",
             "line": get_line(node),
+            "confidence": "Medium"
         }]
     return []
 
+# 16. Empty catch blocks
 def detect_empty_catch(node, source):
     if node.type == "catch_clause":
         body = node.child_by_field_name("body")
-
-        if body and len(body.children) <= 2:  # { }
+        if body and len(body.children) <= 2:  # empty catch block {}
             return [{
                 "type": "Empty catch block",
                 "severity": "Low",
                 "suggestion": "Handle exceptions properly.",
+                "fixable": True,
+                "fix": "# TODO: Add error handling inside catch block.",
                 "line": get_line(node),
+                "confidence": "Low"
             }]
     return []
 
+# 17. isset without validation
 def detect_isset_without_validation(node, source):
     if node.type == "function_call_expression":
         func = node.child_by_field_name("function")
         args = node.child_by_field_name("arguments")
-
         if func and args:
             if get_text(func, source) == "isset":
                 text = get_text(args, source)
@@ -261,36 +297,46 @@ def detect_isset_without_validation(node, source):
                             "type": "isset() without validation",
                             "severity": "Medium",
                             "suggestion": "Validate input after isset().",
+                            "fixable": True,
+                            "fix": "# TODO: Validate input after isset() call.",
                             "line": get_line(node),
+                            "confidence": "Medium"
                         }]
     return []
 
+# 18. eval in include
 def detect_eval_in_include(node, source):
     if node.type in ["include_expression", "require_expression"]:
         text = get_text(node, source)
-
         if "eval(" in text:
             return [{
                 "type": "eval in include",
                 "severity": "Critical",
                 "suggestion": "Avoid eval in included files.",
+                "fixable": True,
+                "fix": "# TODO: Remove eval from included files.",
                 "line": get_line(node),
+                "confidence": "High"
             }]
     return []
 
+# 19. Double assignment
 def detect_double_assignment(node, source):
     if node.type == "assignment_expression":
         text = get_text(node, source)
-
         if re.search(r'\$[a-zA-Z_]\w*\s*=\s*\$[a-zA-Z_]\w*\s*=', text):
             return [{
                 "type": "Double assignment",
                 "severity": "Low",
                 "suggestion": "Check for accidental double assignment.",
+                "fixable": True,
+                "fix": "# TODO: Verify if double assignment is intentional.",
                 "line": get_line(node),
+                "confidence": "Low"
             }]
     return []
-#This one cannot be reliably done via AST, so we keep it as program-level regex
+
+# 20. Unclosed HTML tags (program-level regex)
 def detect_unclosed_html_tags(node, source):
     if node.type != "program":
         return []
@@ -302,7 +348,10 @@ def detect_unclosed_html_tags(node, source):
                 "type": "Potential unclosed HTML tag",
                 "severity": "Low",
                 "suggestion": "Check HTML output.",
+                "fixable": True,
+                "fix": "# TODO: Verify HTML output for unclosed tags.",
                 "line": i,
+                "confidence": "Low"
             })
     return issues
 
