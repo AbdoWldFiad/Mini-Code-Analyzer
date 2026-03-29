@@ -82,9 +82,13 @@ def parse_args():
 
     parser.add_argument( "path", nargs="?", default="test_samples", help="Target file or directory to analyze (default: test_samples)" )
 
-    parser.add_argument("--fix", action="store_true", help="Automatically apply safe fixes")
-    parser.add_argument("--dry-run", action="store_true", help="Show fixes without modifying files")
-    parser.add_argument("--json", action="store_true", help="Generate centralized JSON reports")
+    parser.add_argument( "--fix", "-f", action="store_true", help="Automatically apply safe fixes" )
+
+    parser.add_argument( "--dry-run", "-d", action="store_true", help="Show fixes without modifying files" )
+
+    parser.add_argument( "--json", "-j", action="store_true", help="Generate centralized JSON reports" )
+
+    parser.add_argument( "--aggressive", "-a", action="store_true", help="Apply unsafe/manual fixes (use with caution)" )
 
     return parser.parse_args()
 
