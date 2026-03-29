@@ -26,7 +26,7 @@ class SecureCodeAnalyzer:
     def __init__(self, language="python", framework=None):
         self.language = language.lower()
         self.framework = framework
-        self.rules = LANG_RULES.get(self.language, [])
+        self.rules = LANG_RULES.get(self.language, []).copy()
         if framework:
             self.rules += FRAMEWORK_RULES.get(framework, [])
         self.issues = []
@@ -34,18 +34,41 @@ class SecureCodeAnalyzer:
     def analyze_file(self, filepath):
         """Analyze a file and return a list of issues."""
         self.issues = []
-        with open(filepath, "r", encoding="utf-8") as f:
-            source = f.read()
 
-        if self.language == "python":
-            tree = ast.parse(source, filename=filepath)
-            self._analyze_ast(tree)
-        else:
-            self._analyze_tree_sitter(source)
+        # File Reading Safety 
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                source = f.read()
+        except FileNotFoundError:
+            return [{"error": f"File not found: {filepath}"}]
+        except UnicodeDecodeError:
+            return [{"error": f"Encoding error in file: {filepath}"}]
+        except Exception as e:
+            return [{"error": f"Unexpected error reading file {filepath}: {str(e)}"}]
+
+        #  Parsing & Analysis Safety 
+        try:
+            if self.language == "python":
+                tree = ast.parse(source, filename=filepath)
+                self._analyze_ast(tree)
+            else:
+                self._analyze_tree_sitter(source)
+
+        except SyntaxError as e:
+            self.issues.append({
+                "type": "SyntaxError",
+                "message": str(e),
+                "line": getattr(e, "lineno", None)
+            })
+        except Exception as e:
+            self.issues.append({
+                "type": "AnalyzerError",
+                "message": str(e)
+            })
 
         return self.issues
 
-    # ---------------- Python AST Analysis ----------------
+    # Python AST Analysis 
     def _analyze_ast(self, tree):
         context = AnalysisContext()
         for node in ast.walk(tree):
@@ -62,12 +85,12 @@ class SecureCodeAnalyzer:
                         else:
                             self.issues.append(result)
                 except Exception as e:
-                    print(f"[WARN] Rule {rule.__name__} failed on node {node}: {e}")
+                    print(f"[WARN] Rule {rule.__name__} failed on node {type(node).__name__}: {e}")
 
-    # ---------------- Tree-sitter Analysis ----------------
+    #  Tree-sitter Analysis 
     def _analyze_tree_sitter(self, source):
         """Analyze non-Python source with Tree-sitter."""
-        parser = get_parser(self.language)  # uses Parser(language=ts_language)
+        parser = get_parser(self.language)
         tree = parser.parse(source.encode("utf-8"))
         root_node = tree.root_node
         self._walk_tree_sitter(root_node, source)
@@ -83,7 +106,26 @@ class SecureCodeAnalyzer:
                     else:
                         self.issues.append(result)
             except Exception as e:
-                print(f"[WARN] Rule {rule.__name__} failed on node {node.type}: {e}")
+                print( f"[WARN] Rule {rule.__name__} failed " f"on {type(node).__name__} " f"(line {getattr(node, 'lineno', 'N/A')}): {e}" )
 
         for child in node.children:
             self._walk_tree_sitter(child, source)
+
+# Ctrl+C Handling
+def run_analysis(files, language="python", framework=None):
+    analyzer = SecureCodeAnalyzer(language=language, framework=framework)
+
+    try:
+        for file in files:
+            print(f"Analyzing {file}...")
+            issues = analyzer.analyze_file(file)
+
+            if issues:
+                print(f"[!] Issues found in {file}:")
+                for issue in issues:
+                    print(issue)
+            else:
+                print(f"[OK] No issues found in {file}")
+
+    except KeyboardInterrupt:
+        print("\n[INFO] Scan interrupted by user (Ctrl+C). Exiting gracefully...")

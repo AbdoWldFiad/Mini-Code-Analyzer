@@ -94,8 +94,11 @@ def main():
     if not target.exists():
         console.print(f"[bold red]Error:[/bold red] Path '{target}' does not exist.")
         sys.exit(1)
-
-    analyze_directory( target, autofix=args.fix, dry_run=args.dry_run, json_report=args.json )
+    try:
+        analyze_directory( target, autofix=args.fix, dry_run=args.dry_run, json_report=args.json )
+    except KeyboardInterrupt:
+        print("\n[INFO] Scan interrupted by user (Ctrl+C). Exiting gracefully...")
+        return
 
 if __name__ == "__main__":
     main()
