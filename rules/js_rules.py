@@ -7,6 +7,14 @@ def get_text(node, source):
 def get_line(node):
     return node.start_point[0] + 1
 
+def _meta(node, fixable, fix, confidence="High"):
+    return {
+        "fixable": fixable,
+        "fix": fix,
+        "confidence": confidence,
+        "line": get_line(node)
+    }
+
 
 # 1. eval usage
 def detect_eval_usage(node, source):
@@ -16,7 +24,11 @@ def detect_eval_usage(node, source):
             return [{
                 "type": "Use of eval()",
                 "severity": "High",
-                "line": get_line(node),
+                **_meta(node, False, {
+                    "mode": "manual",
+                    "type": "todo",
+                    "value": "// TODO: Replace eval() with safer alternative"
+                })
             }]
     return []
 
@@ -28,7 +40,11 @@ def detect_var_usage(node, source):
             return [{
                 "type": "Use of var",
                 "severity": "Low",
-                "line": get_line(node),
+                **_meta(node, True, {
+                    "mode": "safe",
+                    "type": "replace_line",
+                    "value": "// Replace var with let or const"
+                }, "Low")
             }]
     return []
 
@@ -41,7 +57,11 @@ def detect_console_log(node, source):
             return [{
                 "type": "console.log usage",
                 "severity": "Low",
-                "line": get_line(node),
+                **_meta(node, True, {
+                    "mode": "safe",
+                    "type": "delete_line",
+                    "value": ""
+                }, "Low")
             }]
     return []
 
@@ -54,7 +74,11 @@ def detect_loose_equality(node, source):
             return [{
                 "type": "Loose equality (==)",
                 "severity": "Medium",
-                "line": get_line(node),
+                **_meta(node, True, {
+                    "mode": "safe",
+                    "type": "replace_line",
+                    "value": "// Replace == with ==="
+                }, "Medium")
             }]
     return []
 
@@ -69,7 +93,11 @@ def detect_assignment_in_condition(node, source):
                 return [{
                     "type": "Assignment in condition",
                     "severity": "High",
-                    "line": get_line(node),
+                    **_meta(node, False, {
+                        "mode": "manual",
+                        "type": "todo",
+                        "value": "// TODO: Replace assignment with comparison"
+                    })
                 }]
     return []
 
@@ -81,7 +109,11 @@ def detect_empty_block(node, source):
             return [{
                 "type": "Empty block",
                 "severity": "Low",
-                "line": get_line(node),
+                **_meta(node, True, {
+                    "mode": "safe",
+                    "type": "insert_line",
+                    "value": "// TODO: Implement or remove empty block"
+                }, "Low")
             }]
     return []
 
@@ -99,6 +131,13 @@ def detect_missing_semicolon(node, source):
                     "type": "Missing semicolon",
                     "severity": "Low",
                     "line": i,
+                    "fixable": True,
+                    "fix": {
+                        "mode": "safe",
+                        "type": "replace_line",
+                        "value": line + ";"
+                    },
+                    "confidence": "High"
                 })
     return issues
 
@@ -109,7 +148,11 @@ def detect_unused_imports(node, source):
         return [{
             "type": "Import detected (check usage)",
             "severity": "Low",
-            "line": get_line(node),
+            **_meta(node, False, {
+                "mode": "manual",
+                "type": "todo",
+                "value": "// TODO: Remove if unused"
+            }, "Low")
         }]
     return []
 
@@ -124,7 +167,11 @@ def detect_long_functions(node, source):
                 return [{
                     "type": "Long function",
                     "severity": "Medium",
-                    "line": get_line(node),
+                    **_meta(node, False, {
+                        "mode": "manual",
+                        "type": "todo",
+                        "value": "// TODO: Split into smaller functions"
+                    }, "Medium")
                 }]
     return []
 
@@ -137,7 +184,11 @@ def detect_deeply_nested_ifs(node, source, depth=0):
             return [{
                 "type": "Deeply nested if",
                 "severity": "Medium",
-                "line": get_line(node),
+                **_meta(node, False, {
+                    "mode": "manual",
+                    "type": "todo",
+                    "value": "// TODO: Refactor nested conditions"
+                }, "Medium")
             }]
     return []
 
@@ -148,7 +199,11 @@ def detect_shadowed_variables(node, source):
         return [{
             "type": "Variable declaration (check shadowing)",
             "severity": "Low",
-            "line": get_line(node),
+            **_meta(node, False, {
+                "mode": "manual",
+                "type": "todo",
+                "value": "// TODO: Check for shadowed variables"
+            }, "Low")
         }]
     return []
 
@@ -159,7 +214,11 @@ def detect_unused_variables(node, source):
         return [{
             "type": "Variable declared (check usage)",
             "severity": "Low",
-            "line": get_line(node),
+            **_meta(node, False, {
+                "mode": "manual",
+                "type": "todo",
+                "value": "// TODO: Remove if unused"
+            }, "Low")
         }]
     return []
 
@@ -172,7 +231,11 @@ def detect_string_plus(node, source):
             return [{
                 "type": "String concatenation with +",
                 "severity": "Low",
-                "line": get_line(node),
+                **_meta(node, True, {
+                    "mode": "safe",
+                    "type": "replace_line",
+                    "value": "// Replace with template literals"
+                }, "Low")
             }]
     return []
 
@@ -180,12 +243,18 @@ def detect_string_plus(node, source):
 # 14. global vars
 def detect_global_vars(node, source):
     if node.type == "program":
-        text = source
-        if re.search(r'^\s*(var|let|const)\s+', text, re.MULTILINE):
+        if re.search(r'^\s*(var|let|const)\s+', source, re.MULTILINE):
             return [{
                 "type": "Global variable",
                 "severity": "Medium",
                 "line": 1,
+                "fixable": False,
+                "fix": {
+                    "mode": "manual",
+                    "type": "todo",
+                    "value": "// TODO: Encapsulate globals"
+                },
+                "confidence": "Medium"
             }]
     return []
 
@@ -201,6 +270,13 @@ def detect_missing_use_strict(node, source):
             "severity": "Low",
             "suggestion": "Add 'use strict' at the top of the file.",
             "line": 1,
+            "fixable": True,
+            "fix": {
+                "mode": "safe",
+                "type": "insert_line",
+                "value": "'use strict';"
+            },
+            "confidence": "High"
         }]
     return []
 
@@ -214,7 +290,11 @@ def detect_duplicate_cases(node, source):
             return [{
                 "type": "Duplicate case in switch",
                 "severity": "Medium",
-                "line": get_line(node),
+                **_meta(node, False, {
+                    "mode": "manual",
+                    "type": "todo",
+                    "value": "// TODO: Remove duplicate case"
+                }, "Medium")
             }]
     return []
 
@@ -227,18 +307,26 @@ def detect_param_reassignment(node, source):
             return [{
                 "type": "Parameter reassignment (possible)",
                 "severity": "Low",
-                "line": get_line(node),
+                **_meta(node, False, {
+                    "mode": "manual",
+                    "type": "todo",
+                    "value": "// TODO: Avoid mutating parameters"
+                }, "Low")
             }]
     return []
 
 
-# 18. unreachable code (basic)
+# 18. unreachable code
 def detect_unreachable_code(node, source):
     if node.type == "return_statement":
         return [{
             "type": "Return statement (check unreachable code after)",
             "severity": "Low",
-            "line": get_line(node),
+            **_meta(node, False, {
+                "mode": "manual",
+                "type": "todo",
+                "value": "// TODO: Remove unreachable code after return"
+            }, "Low")
         }]
     return []
 
@@ -251,7 +339,11 @@ def detect_nested_functions(node, source):
                 return [{
                     "type": "Nested function",
                     "severity": "Low",
-                    "line": get_line(child),
+                    **_meta(child, False, {
+                        "mode": "manual",
+                        "type": "todo",
+                        "value": "// TODO: Flatten nested functions"
+                    }, "Low")
                 }]
     return []
 
@@ -266,12 +358,15 @@ def detect_too_many_params(node, source):
                 return [{
                     "type": "Too many parameters",
                     "severity": "Medium",
-                    "line": get_line(node),
+                    **_meta(node, False, {
+                        "mode": "manual",
+                        "type": "todo",
+                        "value": "// TODO: Refactor function to reduce parameters"
+                    }, "Medium")
                 }]
     return []
 
 
-# the list of all defs
 rules = [
     detect_eval_usage,
     detect_var_usage,

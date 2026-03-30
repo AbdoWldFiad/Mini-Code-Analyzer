@@ -7,6 +7,14 @@ def get_text(node, source):
 def get_line(node):
     return node.start_point[0] + 1
 
+def _meta(node, fixable, fix, confidence="High"):
+    return {
+        "fixable": fixable,
+        "fix": fix,
+        "confidence": confidence,
+        "line": get_line(node)
+    }
+
 
 # 1. Inline JS (onclick, etc.)
 def detect_inline_js(node, source):
@@ -16,7 +24,11 @@ def detect_inline_js(node, source):
             return [{
                 "type": "Inline JavaScript",
                 "severity": "Medium",
-                "line": get_line(node),
+                **_meta(node, False, {
+                    "mode": "manual",
+                    "type": "todo",
+                    "value": "<!-- TODO: Move inline JS to external script -->"
+                }, "Medium")
             }]
     return []
 
@@ -24,13 +36,17 @@ def detect_inline_js(node, source):
 # 2. Missing alt in img
 def detect_missing_alt(node, source):
     if node.type == "element":
-        if get_text(node, source).startswith("<img"):
-            if "alt=" not in get_text(node, source):
-                return [{
-                    "type": "Missing alt attribute",
-                    "severity": "Low",
-                    "line": get_line(node),
-                }]
+        text = get_text(node, source)
+        if text.startswith("<img") and "alt=" not in text:
+            return [{
+                "type": "Missing alt attribute",
+                "severity": "Low",
+                **_meta(node, True, {
+                    "mode": "safe",
+                    "type": "replace_line",
+                    "value": "<img alt=\"description\">"
+                }, "High")
+            }]
     return []
 
 
@@ -42,7 +58,11 @@ def detect_empty_href(node, source):
             return [{
                 "type": "Empty href",
                 "severity": "Low",
-                "line": get_line(node),
+                **_meta(node, True, {
+                    "mode": "safe",
+                    "type": "replace_line",
+                    "value": "href=\"#\""
+                }, "High")
             }]
     return []
 
@@ -55,7 +75,11 @@ def detect_inline_script(node, source):
             return [{
                 "type": "Inline script",
                 "severity": "Medium",
-                "line": get_line(node),
+                **_meta(node, False, {
+                    "mode": "manual",
+                    "type": "todo",
+                    "value": "<!-- TODO: Move script to external file -->"
+                }, "Medium")
             }]
     return []
 
@@ -68,7 +92,11 @@ def detect_iframe_no_sandbox(node, source):
             return [{
                 "type": "Iframe without sandbox",
                 "severity": "High",
-                "line": get_line(node),
+                **_meta(node, True, {
+                    "mode": "safe",
+                    "type": "replace_line",
+                    "value": "<iframe sandbox>"
+                })
             }]
     return []
 
@@ -81,8 +109,12 @@ def detect_deprecated_tags(node, source):
             return [{
                 "type": "Deprecated HTML tag",
                 "severity": "Medium",
-                "suggestion": "Avoid using deprecated tags; use CSS instead.",
-                "line": get_line(node),
+                "suggestion": "Use CSS instead.",
+                **_meta(node, False, {
+                    "mode": "manual",
+                    "type": "todo",
+                    "value": "<!-- TODO: Replace deprecated tag with CSS -->"
+                }, "Medium")
             }]
     return []
 
@@ -94,7 +126,11 @@ def detect_inline_styles(node, source):
             return [{
                 "type": "Inline styles",
                 "severity": "Low",
-                "line": get_line(node),
+                **_meta(node, False, {
+                    "mode": "manual",
+                    "type": "todo",
+                    "value": "<!-- TODO: Move styles to CSS -->"
+                }, "Low")
             }]
     return []
 
@@ -107,7 +143,11 @@ def detect_form_no_action(node, source):
             return [{
                 "type": "Form without action",
                 "severity": "Medium",
-                "line": get_line(node),
+                **_meta(node, True, {
+                    "mode": "safe",
+                    "type": "replace_line",
+                    "value": "<form action=\"/submit\">"
+                }, "Medium")
             }]
     return []
 
@@ -120,7 +160,11 @@ def detect_js_href(node, source):
             return [{
                 "type": "javascript: href",
                 "severity": "High",
-                "line": get_line(node),
+                **_meta(node, True, {
+                    "mode": "safe",
+                    "type": "replace_line",
+                    "value": "href=\"#\""
+                })
             }]
     return []
 
@@ -133,7 +177,11 @@ def detect_password_autocomplete(node, source):
             return [{
                 "type": "Password without autocomplete control",
                 "severity": "Medium",
-                "line": get_line(node),
+                **_meta(node, True, {
+                    "mode": "safe",
+                    "type": "replace_line",
+                    "value": "<input type=\"password\" autocomplete=\"off\">"
+                }, "Medium")
             }]
     return []
 
@@ -146,8 +194,14 @@ def detect_html_no_lang(node, source):
         return [{
             "type": "Missing lang attribute",
             "severity": "Low",
-            "suggestion": "Use only one <title> tag per document.",
             "line": 1,
+            "fixable": True,
+            "fix": {
+                "mode": "safe",
+                "type": "replace_line",
+                "value": "<html lang=\"en\">"
+            },
+            "confidence": "High"
         }]
     return []
 
@@ -160,8 +214,14 @@ def detect_viewport_meta(node, source):
         return [{
             "type": "Missing viewport meta",
             "severity": "Low",
-            "suggestion": "Add <meta charset='UTF-8'> inside <head>.",
             "line": 1,
+            "fixable": True,
+            "fix": {
+                "mode": "safe",
+                "type": "insert_line",
+                "value": "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+            },
+            "confidence": "High"
         }]
     return []
 
@@ -174,7 +234,11 @@ def detect_img_http(node, source):
             return [{
                 "type": "Insecure image source",
                 "severity": "Medium",
-                "line": get_line(node),
+                **_meta(node, True, {
+                    "mode": "safe",
+                    "type": "replace_line",
+                    "value": text.replace("http://", "https://")
+                }, "High")
             }]
     return []
 
@@ -187,7 +251,11 @@ def detect_blank_no_rel(node, source):
             return [{
                 "type": "target=_blank without rel",
                 "severity": "High",
-                "line": get_line(node),
+                **_meta(node, True, {
+                    "mode": "safe",
+                    "type": "replace_line",
+                    "value": text.replace('target="_blank"', 'target="_blank" rel="noopener noreferrer"')
+                })
             }]
     return []
 
@@ -201,6 +269,13 @@ def detect_multiple_title(node, source):
             "type": "Multiple title tags",
             "severity": "Low",
             "line": 1,
+            "fixable": False,
+            "fix": {
+                "mode": "manual",
+                "type": "todo",
+                "value": "<!-- TODO: Keep only one <title> -->"
+            },
+            "confidence": "Medium"
         }]
     return []
 
@@ -214,6 +289,13 @@ def detect_missing_charset(node, source):
             "type": "Missing charset",
             "severity": "Medium",
             "line": 1,
+            "fixable": True,
+            "fix": {
+                "mode": "safe",
+                "type": "insert_line",
+                "value": "<meta charset=\"UTF-8\">"
+            },
+            "confidence": "High"
         }]
     return []
 
@@ -226,7 +308,11 @@ def detect_css_http(node, source):
             return [{
                 "type": "CSS over HTTP",
                 "severity": "Medium",
-                "line": get_line(node),
+                **_meta(node, True, {
+                    "mode": "safe",
+                    "type": "replace_line",
+                    "value": text.replace("http://", "https://")
+                })
             }]
     return []
 
@@ -239,7 +325,11 @@ def detect_script_http(node, source):
             return [{
                 "type": "Script over HTTP",
                 "severity": "High",
-                "line": get_line(node),
+                **_meta(node, True, {
+                    "mode": "safe",
+                    "type": "replace_line",
+                    "value": text.replace("http://", "https://")
+                })
             }]
     return []
 
@@ -252,7 +342,11 @@ def detect_media_no_controls(node, source):
             return [{
                 "type": "Media without controls",
                 "severity": "Low",
-                "line": get_line(node),
+                **_meta(node, True, {
+                    "mode": "safe",
+                    "type": "replace_line",
+                    "value": text.replace(">", " controls>")
+                }, "Medium")
             }]
     return []
 
@@ -265,7 +359,11 @@ def detect_input_no_type(node, source):
             return [{
                 "type": "Input without type",
                 "severity": "Low",
-                "line": get_line(node),
+                **_meta(node, True, {
+                    "mode": "safe",
+                    "type": "replace_line",
+                    "value": "<input type=\"text\">"
+                }, "High")
             }]
     return []
 
@@ -277,7 +375,11 @@ def detect_inline_event_handlers(node, source):
             return [{
                 "type": "Inline event handler",
                 "severity": "Medium",
-                "line": get_line(node),
+                **_meta(node, False, {
+                    "mode": "manual",
+                    "type": "todo",
+                    "value": "<!-- TODO: Use addEventListener instead -->"
+                }, "Medium")
             }]
     return []
 
@@ -291,12 +393,15 @@ def detect_missing_csrf_token(node, source):
                 return [{
                     "type": "Missing CSRF token",
                     "severity": "High",
-                    "line": get_line(node),
+                    **_meta(node, False, {
+                        "mode": "manual",
+                        "type": "todo",
+                        "value": "<!-- TODO: Add CSRF token field -->"
+                    })
                 }]
     return []
 
 
-# FINAL RULE LIST
 rules = [
     detect_inline_js,
     detect_missing_alt,
