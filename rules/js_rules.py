@@ -7,7 +7,7 @@ def get_text(node, source):
 def get_line(node):
     return node.start_point[0] + 1
 
-def _meta(node, fixable, fix, confidence="High"):
+def _meta(node, fixable=False, fix=None, confidence="high"):
     return {
         "fixable": fixable,
         "fix": fix,
@@ -15,149 +15,111 @@ def _meta(node, fixable, fix, confidence="High"):
         "line": get_line(node)
     }
 
-
-# 1. eval usage
+# 1. eval usage (manual)
 def detect_eval_usage(node, source):
     if node.type == "call_expression":
         func = node.child_by_field_name("function")
         if func and get_text(func, source) == "eval":
             return [{
                 "type": "Use of eval()",
-                "severity": "High",
-                **_meta(node, False, {
-                    "mode": "manual",
-                    "type": "todo",
-                    "value": "// TODO: Replace eval() with safer alternative"
+                "message": "eval() is unsafe. Replace with safer alternative.",
+                "severity": "high",
+                **_meta(node)
+            }]
+    return []
+
+# 2. var usage → auto replace
+def detect_var_usage(node, source):
+    if node.type == "variable_declaration":
+        text = get_text(node, source)
+        if re.search(r'\bvar\b', text):
+            fixed_text = re.sub(r'\bvar\b', 'let', text, count=1)
+            return [{
+                "type": "Use of var",
+                "message": "Replaced 'var' with 'let'.",
+                "severity": "low",
+                **_meta(node, True, {
+                    "type": "replace",
+                    "content": fixed_text
                 })
             }]
     return []
 
-
-# 2. var usage
-def detect_var_usage(node, source):
-    if node.type == "variable_declaration":
-        if "var " in get_text(node, source):
-            return [{
-                "type": "Use of var",
-                "severity": "Low",
-                **_meta(node, True, {
-                    "mode": "safe",
-                    "type": "replace_line",
-                    "value": "// Replace var with let or const"
-                }, "Low")
-            }]
-    return []
-
-
-# 3. console.log
+# 3. console.log → safer replace
 def detect_console_log(node, source):
     if node.type == "call_expression":
         text = get_text(node, source)
         if "console.log" in text:
             return [{
                 "type": "console.log usage",
-                "severity": "Low",
+                "message": "Removed console.log statement.",
+                "severity": "low",
                 **_meta(node, True, {
-                    "mode": "safe",
-                    "type": "delete_line",
-                    "value": ""
-                }, "Low")
+                    "type": "replace",
+                    "content": ""
+                })
             }]
     return []
 
-
-# 4. loose equality
+# 4. loose equality → safer regex
 def detect_loose_equality(node, source):
     if node.type == "binary_expression":
         text = get_text(node, source)
-        if "==" in text and "===" not in text:
+        if re.search(r'(?<![=!])==(?!=)', text):
+            fixed_text = re.sub(r'(?<![=!])==(?!=)', '===', text)
             return [{
                 "type": "Loose equality (==)",
-                "severity": "Medium",
+                "message": "Replaced '==' with '==='.",
+                "severity": "medium",
                 **_meta(node, True, {
-                    "mode": "safe",
-                    "type": "replace_line",
-                    "value": "// Replace == with ==="
-                }, "Medium")
+                    "type": "replace",
+                    "content": fixed_text
+                })
             }]
     return []
 
-
-# 5. assignment in condition
+# 5. assignment in condition (manual)
 def detect_assignment_in_condition(node, source):
     if node.type == "if_statement":
         condition = node.child_by_field_name("condition")
         if condition:
             text = get_text(condition, source)
-            if "=" in text and "==" not in text:
+            if re.search(r'(?<![=!])=(?!=)', text):
                 return [{
                     "type": "Assignment in condition",
-                    "severity": "High",
-                    **_meta(node, False, {
-                        "mode": "manual",
-                        "type": "todo",
-                        "value": "// TODO: Replace assignment with comparison"
-                    })
+                    "message": "Avoid assignment in conditions.",
+                    "severity": "high",
+                    **_meta(condition)
                 }]
     return []
 
-
-# 6. empty block
+# 6. empty block (optional fix)
 def detect_empty_block(node, source):
     if node.type == "statement_block":
         if len(node.children) <= 2:
             return [{
                 "type": "Empty block",
-                "severity": "Low",
+                "message": "Empty block detected.",
+                "severity": "low",
                 **_meta(node, True, {
-                    "mode": "safe",
-                    "type": "insert_line",
-                    "value": "// TODO: Implement or remove empty block"
-                }, "Low")
+                    "type": "replace",
+                    "content": ""
+                }, "medium")
             }]
     return []
 
-
-# 7. missing semicolon (fallback)
-def detect_missing_semicolon(node, source):
-    if node.type != "program":
-        return []
-
-    issues = []
-    for i, line in enumerate(source.splitlines(), 1):
-        if line.strip() and not line.strip().endswith((";", "{", "}", ",")):
-            if not line.strip().startswith(("if", "for", "while", "function")):
-                issues.append({
-                    "type": "Missing semicolon",
-                    "severity": "Low",
-                    "line": i,
-                    "fixable": True,
-                    "fix": {
-                        "mode": "safe",
-                        "type": "replace_line",
-                        "value": line + ";"
-                    },
-                    "confidence": "High"
-                })
-    return issues
-
-
-# 8. unused imports (basic)
+# 7. unused imports (manual)
 def detect_unused_imports(node, source):
     if node.type == "import_statement":
         return [{
-            "type": "Import detected (check usage)",
-            "severity": "Low",
-            **_meta(node, False, {
-                "mode": "manual",
-                "type": "todo",
-                "value": "// TODO: Remove if unused"
-            }, "Low")
+            "type": "Import detected",
+            "message": "Check for unused import.",
+            "severity": "low",
+            **_meta(node, False, None, "medium")
         }]
     return []
 
-
-# 9. long functions
+# 8. long functions (manual)
 def detect_long_functions(node, source):
     if node.type == "function_declaration":
         body = node.child_by_field_name("body")
@@ -166,206 +128,133 @@ def detect_long_functions(node, source):
             if lines > 50:
                 return [{
                     "type": "Long function",
-                    "severity": "Medium",
-                    **_meta(node, False, {
-                        "mode": "manual",
-                        "type": "todo",
-                        "value": "// TODO: Split into smaller functions"
-                    }, "Medium")
+                    "message": "Function exceeds 50 lines.",
+                    "severity": "medium",
+                    **_meta(node, False, None, "medium")
                 }]
     return []
 
-
-# 10. deeply nested ifs
+# 9. deeply nested ifs (manual)
 def detect_deeply_nested_ifs(node, source, depth=0):
     if node.type == "if_statement":
         depth += 1
         if depth > 3:
             return [{
                 "type": "Deeply nested if",
-                "severity": "Medium",
-                **_meta(node, False, {
-                    "mode": "manual",
-                    "type": "todo",
-                    "value": "// TODO: Refactor nested conditions"
-                }, "Medium")
+                "message": "Too much nesting.",
+                "severity": "medium",
+                **_meta(node, False, None, "medium")
             }]
     return []
 
-
-# 11. shadowed variables (basic)
-def detect_shadowed_variables(node, source):
-    if node.type == "variable_declarator":
-        return [{
-            "type": "Variable declaration (check shadowing)",
-            "severity": "Low",
-            **_meta(node, False, {
-                "mode": "manual",
-                "type": "todo",
-                "value": "// TODO: Check for shadowed variables"
-            }, "Low")
-        }]
-    return []
-
-
-# 12. unused variables (basic)
-def detect_unused_variables(node, source):
-    if node.type == "variable_declarator":
-        return [{
-            "type": "Variable declared (check usage)",
-            "severity": "Low",
-            **_meta(node, False, {
-                "mode": "manual",
-                "type": "todo",
-                "value": "// TODO: Remove if unused"
-            }, "Low")
-        }]
-    return []
-
-
-# 13. string concatenation with +
+# 10. string concatenation (limited auto-fix)
 def detect_string_plus(node, source):
     if node.type == "binary_expression":
         text = get_text(node, source)
-        if "+" in text and '"' in text:
+        match = re.match(r'"([^"]*)"\s*\+\s*(\w+)', text)
+        if match:
+            fixed_text = f"`{match.group(1)} ${{{match.group(2)}}}`"
             return [{
-                "type": "String concatenation with +",
-                "severity": "Low",
+                "type": "String concatenation",
+                "message": "Use template literals.",
+                "severity": "low",
                 **_meta(node, True, {
-                    "mode": "safe",
-                    "type": "replace_line",
-                    "value": "// Replace with template literals"
-                }, "Low")
+                    "type": "replace",
+                    "content": fixed_text
+                }, "medium")
             }]
     return []
 
-
-# 14. global vars
+# 11. global vars (manual)
 def detect_global_vars(node, source):
     if node.type == "program":
         if re.search(r'^\s*(var|let|const)\s+', source, re.MULTILINE):
             return [{
                 "type": "Global variable",
-                "severity": "Medium",
-                "line": 1,
-                "fixable": False,
-                "fix": {
-                    "mode": "manual",
-                    "type": "todo",
-                    "value": "// TODO: Encapsulate globals"
-                },
-                "confidence": "Medium"
+                "message": "Encapsulate globals.",
+                "severity": "medium",
+                **_meta(node, False, None, "medium")
             }]
     return []
 
-
-# 15. missing 'use strict'
+# 12. missing use strict (auto insert)
 def detect_missing_use_strict(node, source):
-    if node.type != "program":
-        return []
-
-    if '"use strict"' not in source and "'use strict'" not in source:
-        return [{
-            "type": "Missing 'use strict'",
-            "severity": "Low",
-            "suggestion": "Add 'use strict' at the top of the file.",
-            "line": 1,
-            "fixable": True,
-            "fix": {
-                "mode": "safe",
-                "type": "insert_line",
-                "value": "'use strict';"
-            },
-            "confidence": "High"
-        }]
+    if node.type == "program":
+        if '"use strict"' not in source and "'use strict'" not in source:
+            return [{
+                "type": "Missing 'use strict'",
+                "message": "Added 'use strict'.",
+                "severity": "low",
+                **_meta(node, True, {
+                    "type": "insert",
+                    "content": "'use strict';\n"
+                })
+            }]
     return []
 
-
-# 16. duplicate case (basic)
+# 13. duplicate case (manual)
 def detect_duplicate_cases(node, source):
     if node.type == "switch_statement":
         text = get_text(node, source)
         cases = re.findall(r'case\s+(.+?):', text)
         if len(cases) != len(set(cases)):
             return [{
-                "type": "Duplicate case in switch",
-                "severity": "Medium",
-                **_meta(node, False, {
-                    "mode": "manual",
-                    "type": "todo",
-                    "value": "// TODO: Remove duplicate case"
-                }, "Medium")
+                "type": "Duplicate case",
+                "message": "Duplicate case found.",
+                "severity": "medium",
+                **_meta(node, False, None, "medium")
             }]
     return []
 
-
-# 17. param reassignment
+# 14. param reassignment (manual)
 def detect_param_reassignment(node, source):
     if node.type == "assignment_expression":
         text = get_text(node, source)
         if re.match(r'\w+\s*=', text):
             return [{
-                "type": "Parameter reassignment (possible)",
-                "severity": "Low",
-                **_meta(node, False, {
-                    "mode": "manual",
-                    "type": "todo",
-                    "value": "// TODO: Avoid mutating parameters"
-                }, "Low")
+                "type": "Parameter reassignment",
+                "message": "Avoid mutating parameters.",
+                "severity": "low",
+                **_meta(node, False, None, "medium")
             }]
     return []
 
-
-# 18. unreachable code
+# 15. unreachable code (manual)
 def detect_unreachable_code(node, source):
     if node.type == "return_statement":
         return [{
-            "type": "Return statement (check unreachable code after)",
-            "severity": "Low",
-            **_meta(node, False, {
-                "mode": "manual",
-                "type": "todo",
-                "value": "// TODO: Remove unreachable code after return"
-            }, "Low")
+            "type": "Return statement",
+            "message": "Check for unreachable code after return.",
+            "severity": "low",
+            **_meta(node, False, None, "medium")
         }]
     return []
 
-
-# 19. nested functions
+# 16. nested functions (manual)
 def detect_nested_functions(node, source):
     if node.type == "function_declaration":
         for child in node.children:
             if child.type == "function_declaration":
                 return [{
                     "type": "Nested function",
-                    "severity": "Low",
-                    **_meta(child, False, {
-                        "mode": "manual",
-                        "type": "todo",
-                        "value": "// TODO: Flatten nested functions"
-                    }, "Low")
+                    "message": "Avoid nested functions.",
+                    "severity": "low",
+                    **_meta(child, False, None, "medium")
                 }]
     return []
 
-
-# 20. too many params
+# 17. too many params (manual)
 def detect_too_many_params(node, source):
     if node.type == "function_declaration":
         params = node.child_by_field_name("parameters")
-        if params:
-            count = len(params.children)
-            if count > 5:
-                return [{
-                    "type": "Too many parameters",
-                    "severity": "Medium",
-                    **_meta(node, False, {
-                        "mode": "manual",
-                        "type": "todo",
-                        "value": "// TODO: Refactor function to reduce parameters"
-                    }, "Medium")
-                }]
+        if params and len(params.children) > 5:
+            return [{
+                "type": "Too many parameters",
+                "message": "Reduce parameter count.",
+                "severity": "medium",
+                **_meta(node, False, None, "medium")
+            }]
     return []
-
 
 rules = [
     detect_eval_usage,
@@ -374,12 +263,9 @@ rules = [
     detect_loose_equality,
     detect_assignment_in_condition,
     detect_empty_block,
-    detect_missing_semicolon,
     detect_unused_imports,
     detect_long_functions,
     detect_deeply_nested_ifs,
-    detect_shadowed_variables,
-    detect_unused_variables,
     detect_string_plus,
     detect_global_vars,
     detect_missing_use_strict,

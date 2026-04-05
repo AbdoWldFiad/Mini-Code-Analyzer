@@ -5,7 +5,8 @@ def _meta(node, fixable, fix, confidence="High"):
         "fixable": fixable,
         "fix": fix,
         "confidence": confidence,
-        "line": getattr(node, "lineno", None)
+        "start": getattr(node, "lineno", None),
+        "end": getattr(node, "end_lineno", getattr(node, "lineno", None))
     }
 
 # 1. Use of eval()
@@ -29,26 +30,24 @@ def detect_exec_usage(node, context):
         return {
             "type": "Use of exec()",
             "severity": "High",
-            "suggestion": "Avoid exec(); it's dangerous and hard to secure.",
+            "suggestion": "Avoid exec(); it's dangerous.",
             **_meta(node, False, {
                 "mode": "manual",
                 "type": "todo",
                 "value": "# TODO: Refactor to avoid exec()"
             })
         }
-
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "exec":
         return {
             "type": "Use of exec()",
             "severity": "High",
-            "suggestion": "Avoid exec(); it's dangerous and hard to secure.",
+            "suggestion": "Avoid exec(); it's dangerous.",
             **_meta(node, False, {
                 "mode": "manual",
                 "type": "todo",
                 "value": "# TODO: Refactor to avoid exec()"
             })
         }
-
     return None
 
 # 3. Hardcoded password in variables
@@ -60,7 +59,7 @@ def detect_hardcoded_password(node, context):
                     return {
                         "type": "Hardcoded password",
                         "severity": "High",
-                        "suggestion": "Store secrets in environment variables or vaults.",
+                        "suggestion": "Store secrets in environment variables.",
                         **_meta(node, False, {
                             "mode": "manual",
                             "type": "todo",
@@ -69,7 +68,7 @@ def detect_hardcoded_password(node, context):
                     }
     return None
 
-# 4. Use of pickle.loads() AKA: insecure deserialization
+# 4. Use of pickle.loads()
 def detect_pickle_loads(node, context):
     if isinstance(node, ast.Call):
         if isinstance(node.func, ast.Attribute) and node.func.attr == "loads":
@@ -77,7 +76,7 @@ def detect_pickle_loads(node, context):
                 return {
                     "type": "Insecure deserialization (pickle.loads)",
                     "severity": "High",
-                    "suggestion": "Use safer alternatives like json or restrict input source.",
+                    "suggestion": "Use safer alternatives like json.",
                     **_meta(node, False, {
                         "mode": "manual",
                         "type": "todo",
@@ -86,7 +85,7 @@ def detect_pickle_loads(node, context):
                 }
     return None
 
-# 5. Use of subprocess.Popen with shell=True
+# 5. subprocess.Popen with shell=True
 def detect_shell_true(node, context):
     if isinstance(node, ast.Call):
         if isinstance(node.func, ast.Attribute) and node.func.attr == "Popen":
@@ -104,17 +103,17 @@ def detect_shell_true(node, context):
                     }
     return None
 
-# 6. SQL queries using string concatenation
+# 6. SQL string concatenation
 def detect_sql_string_concat(node, context):
     if isinstance(node, ast.Call):
         if isinstance(node.func, ast.Attribute) and node.func.attr == "execute":
             if node.args:
                 arg = node.args[0]
-                if isinstance(arg, ast.BinOp) or isinstance(arg, ast.JoinedStr):
+                if isinstance(arg, (ast.BinOp, ast.JoinedStr)):
                     return {
                         "type": "Possible SQL injection",
                         "severity": "High",
-                        "suggestion": "Use parameterized queries instead of string formatting.",
+                        "suggestion": "Use parameterized queries.",
                         **_meta(node, False, {
                             "mode": "manual",
                             "type": "todo",
@@ -123,7 +122,7 @@ def detect_sql_string_concat(node, context):
                     }
     return None
 
-# 7. Use of yaml.load() without Loader=safe
+# 7. yaml.load without safe loader
 def detect_yaml_unsafe_load(node, context):
     if isinstance(node, ast.Call):
         if isinstance(node.func, ast.Attribute) and node.func.attr == "load":
@@ -132,7 +131,7 @@ def detect_yaml_unsafe_load(node, context):
                     return {
                         "type": "Unsafe YAML loading",
                         "severity": "High",
-                        "suggestion": "Use yaml.safe_load() or specify safe Loader.",
+                        "suggestion": "Use yaml.safe_load() or specify Loader.",
                         **_meta(node, True, {
                             "mode": "safe",
                             "type": "replace_line",
@@ -141,14 +140,14 @@ def detect_yaml_unsafe_load(node, context):
                     }
     return None
 
-# 8. Use of weak hash algorithms (e.g., MD5)
+# 8. Weak hash (MD5/SHA1)
 def detect_weak_hash_usage(node, context):
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
         if node.func.attr in ["md5", "sha1"]:
             return {
                 "type": f"Weak hash algorithm: {node.func.attr}",
                 "severity": "Medium",
-                "suggestion": "Use SHA-256 or SHA-3 instead of MD5/SHA-1.",
+                "suggestion": "Use SHA-256 or SHA-3 instead.",
                 **_meta(node, True, {
                     "mode": "safe",
                     "type": "replace_line",
@@ -157,14 +156,14 @@ def detect_weak_hash_usage(node, context):
             }
     return None
 
-# 9. Insecure random (not using secrets)
+# 9. Insecure random
 def detect_insecure_random(node, context):
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
         if isinstance(node.func.value, ast.Name) and node.func.value.id == "random":
             return {
-                "type": "Insecure random generator used",
+                "type": "Insecure random generator",
                 "severity": "Medium",
-                "suggestion": "Use secrets module for secure tokens/passwords.",
+                "suggestion": "Use secrets module for secure tokens.",
                 **_meta(node, True, {
                     "mode": "safe",
                     "type": "replace_line",
@@ -173,14 +172,14 @@ def detect_insecure_random(node, context):
             }
     return None
 
-#10. Use of input() in Python 2/3
+# 10. input()/raw_input()
 def detect_raw_input_or_input(node, context):
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
         if node.func.id in ["input", "raw_input"]:
             return {
                 "type": f"Use of {node.func.id}()",
                 "severity": "Low",
-                "suggestion": "Sanitize and validate input before use.",
+                "suggestion": "Sanitize and validate input.",
                 **_meta(node, False, {
                     "mode": "manual",
                     "type": "todo",
@@ -189,25 +188,25 @@ def detect_raw_input_or_input(node, context):
             }
     return None
 
-# 11. Insecure use of os.system() | Like what i did in run.py lol
+# 11. os.system()
 def detect_os_system_usage(node, context):
     if isinstance(node, ast.Call):
-        if isinstance(node.func, ast.Attribute) or isinstance(node.func, ast.Name):
-            if getattr(node.func, 'attr', '') == 'system' or getattr(node.func, 'id', '') == 'system':
-                if getattr(node.func, 'value', None) and getattr(node.func.value, 'id', '') == 'os':
-                    return {
-                        "type": "Use of os.system()",
-                        "severity": "High",
-                        "suggestion": "Use subprocess with proper escaping instead.",
-                        **_meta(node, False, {
-                            "mode": "manual",
-                            "type": "todo",
-                            "value": "# TODO: Replace os.system with subprocess.run"
-                        })
-                    }
+        func_name = getattr(node.func, 'id', getattr(node.func, 'attr', None))
+        if func_name == "system":
+            if getattr(node.func, 'value', None) and getattr(node.func.value, 'id', '') == 'os':
+                return {
+                    "type": "Use of os.system()",
+                    "severity": "High",
+                    "suggestion": "Use subprocess.run with proper escaping.",
+                    **_meta(node, False, {
+                        "mode": "manual",
+                        "type": "todo",
+                        "value": "# TODO: Replace os.system with subprocess.run"
+                    })
+                }
     return None
 
-# 12. Use of getattr() with dynamic input
+# 12. Dynamic getattr()
 def detect_dynamic_getattr(node, context):
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "getattr":
         if len(node.args) >= 2 and isinstance(node.args[1], ast.Name):
@@ -223,7 +222,7 @@ def detect_dynamic_getattr(node, context):
             }
     return None
 
-# 13. Use of __import__() AKA: dynamic imports
+# 13. Dynamic import (__import__())
 def detect_dynamic_import(node, context):
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "__import__":
         return {
@@ -238,7 +237,7 @@ def detect_dynamic_import(node, context):
         }
     return None
 
-# 14. Use of marshal module
+# 14. marshal module import
 def detect_marshal_import(node, context):
     if isinstance(node, ast.Import):
         for alias in node.names:
@@ -255,24 +254,23 @@ def detect_marshal_import(node, context):
                 }
     return None
 
-# 15. Use of tempfile.mktemp() (unsafe temp file)
+# 15. tempfile.mktemp()
 def detect_unsafe_tempfile(node, context):
-    if isinstance(node, ast.Call):
-        if isinstance(node.func, ast.Attribute) and node.func.attr == "mktemp":
-            if isinstance(node.func.value, ast.Name) and node.func.value.id == "tempfile":
-                return {
-                    "type": "Use of tempfile.mktemp()",
-                    "severity": "High",
-                    "suggestion": "Use NamedTemporaryFile instead.",
-                    **_meta(node, True, {
-                        "mode": "safe",
-                        "type": "replace_line",
-                        "value": "# Replace with tempfile.NamedTemporaryFile()"
-                    })
-                }
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+        if node.func.attr == "mktemp" and getattr(node.func.value, "id", "") == "tempfile":
+            return {
+                "type": "Use of tempfile.mktemp()",
+                "severity": "High",
+                "suggestion": "Use NamedTemporaryFile instead.",
+                **_meta(node, True, {
+                    "mode": "safe",
+                    "type": "replace_line",
+                    "value": "# Replace with tempfile.NamedTemporaryFile()"
+                })
+            }
     return None
 
-# 16. Use of open() without mode (defaulting to read/write)
+# 16. open() without mode
 def detect_open_without_mode(node, context):
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "open":
         if len(node.args) < 2:
@@ -288,7 +286,7 @@ def detect_open_without_mode(node, context):
             }
     return None
 
-# 17. Using assert in production code
+# 17. assert statement
 def detect_assert_statements(node, context):
     if isinstance(node, ast.Assert):
         return {
@@ -303,7 +301,7 @@ def detect_assert_statements(node, context):
         }
     return None
 
-# 18. Use of Flask with debug=True
+# 18. Flask debug=True
 def detect_flask_debug(node, context):
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "run":
         for kw in node.keywords:
@@ -320,7 +318,7 @@ def detect_flask_debug(node, context):
                 }
     return None
 
-# 19. Use of requests without HTTPS
+# 19. requests without HTTPS
 def detect_http_requests(node, context):
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
         if node.func.attr in ["get", "post", "put", "delete"]:
@@ -341,7 +339,7 @@ def detect_http_requests(node, context):
                             }
     return None
 
-# 20. Use of JWT decoding without signature verification
+# 20. JWT decode without verify
 def detect_jwt_decode_no_verify(node, context):
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
         if node.func.attr == "decode" and isinstance(node.func.value, ast.Name) and node.func.value.id == "jwt":

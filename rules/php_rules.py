@@ -6,6 +6,23 @@ def get_text(node, source):
 def get_line(node):
     return node.start_point[0] + 1
 
+def _meta(node, fixable, fix_content, confidence="High"):
+    fix_type = fix_content.get("type", "replace") if isinstance(fix_content, dict) else "replace"
+    mode = fix_content.get("mode", "safe") if isinstance(fix_content, dict) else "manual"
+    content = fix_content.get("content", fix_content) if isinstance(fix_content, dict) else fix_content
+    return {
+        "fixable": fixable,
+        "fix": {
+            "type": fix_type,
+            "mode": mode,
+            "start": getattr(node, "start_byte", None),
+            "end": getattr(node, "end_byte", None),
+            "content": content
+        },
+        "confidence": confidence,
+        "line": get_line(node)
+    }
+
 # 1. Detect eval()
 def detect_eval_usage_php(node, source):
     if node.type == "function_call_expression":
@@ -15,10 +32,7 @@ def detect_eval_usage_php(node, source):
                 "type": "Use of eval()",
                 "severity": "High",
                 "suggestion": "Avoid using eval().",
-                "fixable": True,
-                "fix": "# TODO: Replace eval safely\n# Use ast.literal_eval() or other safe alternatives.",
-                "line": get_line(node),
-                "confidence": "High"
+                **_meta(node, True, "# TODO: Replace eval safely\n# Use ast.literal_eval() or other safe alternatives.")
             }]
     return []
 
@@ -33,10 +47,7 @@ def detect_shell_exec(node, source):
                     "type": "Shell execution",
                     "severity": "High",
                     "suggestion": "Avoid executing shell commands.",
-                    "fixable": True,
-                    "fix": "# TODO: Review shell execution for security.",
-                    "line": get_line(node),
-                    "confidence": "High"
+                    **_meta(node, True, "# TODO: Review shell execution for security.")
                 }]
     return []
 
@@ -49,10 +60,7 @@ def detect_dynamic_include(node, source):
                 "type": "Dynamic include/require",
                 "severity": "High",
                 "suggestion": "Avoid dynamic file inclusion.",
-                "fixable": True,
-                "fix": "# TODO: Replace dynamic include with static paths.",
-                "line": get_line(node),
-                "confidence": "High"
+                **_meta(node, True, "# TODO: Replace dynamic include with static paths.")
             }]
     return []
 
@@ -67,10 +75,7 @@ def detect_mysql_deprecated(node, source):
                     "type": "Deprecated mysql_*",
                     "severity": "High",
                     "suggestion": "Use mysqli or PDO instead.",
-                    "fixable": True,
-                    "fix": "# TODO: Replace mysql_* functions with mysqli or PDO.",
-                    "line": get_line(node),
-                    "confidence": "High"
+                    **_meta(node, True, "# TODO: Replace mysql_* functions with mysqli or PDO.")
                 }]
     return []
 
@@ -83,10 +88,7 @@ def detect_unescaped_output(node, source):
                 "type": "Unescaped output",
                 "severity": "High",
                 "suggestion": "Escape output to prevent XSS.",
-                "fixable": True,
-                "fix": "# TODO: Add escaping function like htmlspecialchars() to output.",
-                "line": get_line(node),
-                "confidence": "High"
+                **_meta(node, True, "# TODO: Add escaping function like htmlspecialchars() to output.")
             }]
     return []
 
@@ -99,10 +101,7 @@ def detect_unsanitized_input(node, source):
                 "type": "Unsanitized input",
                 "severity": "High",
                 "suggestion": "Sanitize user input.",
-                "fixable": True,
-                "fix": "# TODO: Sanitize this user input before usage.",
-                "line": get_line(node),
-                "confidence": "High"
+                **_meta(node, True, "# TODO: Sanitize this user input before usage.")
             }]
     return []
 
@@ -114,9 +113,7 @@ def detect_base64_decode(node, source):
             return [{
                 "type": "base64_decode usage",
                 "severity": "Medium",
-                "suggestion": "Ensure it's not hiding malicious code.",
-                "fixable": False,
-                "line": get_line(node),
+                **_meta(node, False, "# TODO: Ensure it's not hiding malicious code.")
             }]
     return []
 
@@ -131,10 +128,7 @@ def detect_assignment_in_if(node, source):
                     "type": "Assignment in condition",
                     "severity": "High",
                     "suggestion": "Use comparison operators instead of assignment in conditions.",
-                    "fixable": True,
-                    "fix": "# TODO: Replace assignment with comparison operator.",
-                    "line": get_line(node),
-                    "confidence": "High"
+                    **_meta(node, True, "# TODO: Replace assignment with comparison operator.")
                 }]
     return []
 
@@ -143,19 +137,14 @@ def detect_eval_user_input(node, source):
     if node.type == "function_call_expression":
         func = node.child_by_field_name("function")
         args = node.child_by_field_name("arguments")
-
-        if func and args:
-            if get_text(func, source) == "eval":
-                if re.search(r'\$_(GET|POST|REQUEST|COOKIE)', get_text(args, source)):
-                    return [{
-                        "type": "eval() with user input",
-                        "severity": "Critical",
-                        "suggestion": "Never pass user input to eval().",
-                        "fixable": True,
-                        "fix": "# TODO: Remove eval on user input immediately; very dangerous.",
-                        "line": get_line(node),
-                        "confidence": "High"
-                    }]
+        if func and args and get_text(func, source) == "eval":
+            if re.search(r'\$_(GET|POST|REQUEST|COOKIE)', get_text(args, source)):
+                return [{
+                    "type": "eval() with user input",
+                    "severity": "Critical",
+                    "suggestion": "Never pass user input to eval().",
+                    **_meta(node, True, "# TODO: Remove eval on user input immediately; very dangerous.")
+                }]
     return []
 
 # 10. md5 password hashing
@@ -167,10 +156,7 @@ def detect_md5_password(node, source):
                 "type": "Weak hashing (md5)",
                 "severity": "High",
                 "suggestion": "Use password_hash() instead.",
-                "fixable": True,
-                "fix": "# TODO: Replace md5 with password_hash().",
-                "line": get_line(node),
-                "confidence": "High"
+                **_meta(node, True, "# TODO: Replace md5 with password_hash().")
             }]
     return []
 
@@ -179,36 +165,36 @@ def detect_unserialize_user(node, source):
     if node.type == "function_call_expression":
         func = node.child_by_field_name("function")
         args = node.child_by_field_name("arguments")
-
-        if func and args:
-            if get_text(func, source) == "unserialize":
-                if re.search(r'\$_(GET|POST|REQUEST|COOKIE)', get_text(args, source)):
-                    return [{
-                        "type": "Unserialize user input",
-                        "severity": "Critical",
-                        "suggestion": "Avoid unserializing user input.",
-                        "fixable": True,
-                        "fix": "# TODO: Validate or avoid unserialize on user input.",
-                        "line": get_line(node),
-                        "confidence": "High"
-                    }]
+        if func and args and get_text(func, source) == "unserialize":
+            if re.search(r'\$_(GET|POST|REQUEST|COOKIE)', get_text(args, source)):
+                return [{
+                    "type": "Unserialize user input",
+                    "severity": "Critical",
+                    "suggestion": "Avoid unserializing user input.",
+                    **_meta(node, True, "# TODO: Validate or avoid unserialize on user input.")
+                }]
     return []
 
 # 12. Short PHP tags (run once)
 def detect_short_tags(node, source):
     if node.type != "program":
         return []
-
     issues = []
     for i, line in enumerate(source.splitlines(), 1):
         if re.search(r'<\?(?!php)', line):
             issues.append({
                 "type": "Short PHP tag",
                 "severity": "Low",
-                "fixable": True,
-                "fix": "# TODO: Replace short PHP tag with <?php.",
                 "line": i,
-                "confidence": "Medium"
+                "confidence": "Medium",
+                "fixable": True,
+                "fix": {
+                    "type": "replace",
+                    "mode": "safe",
+                    "start": None,
+                    "end": None,
+                    "content": "# TODO: Replace short PHP tag with <?php."
+                }
             })
     return issues
 
@@ -217,20 +203,14 @@ def detect_file_user_input(node, source):
     if node.type == "function_call_expression":
         func = node.child_by_field_name("function")
         args = node.child_by_field_name("arguments")
-
-        if func and args:
-            name = get_text(func, source)
-            if name in ["fopen", "fread", "fwrite", "file_put_contents"]:
-                if re.search(r'\$_(GET|POST|REQUEST|COOKIE)', get_text(args, source)):
-                    return [{
-                        "type": "File operation with user input",
-                        "severity": "High",
-                        "suggestion": "Validate file paths before use.",
-                        "fixable": True,
-                        "fix": "# TODO: Validate file paths from user input.",
-                        "line": get_line(node),
-                        "confidence": "High"
-                    }]
+        if func and args and get_text(func, source) in ["fopen","fread","fwrite","file_put_contents"]:
+            if re.search(r'\$_(GET|POST|REQUEST|COOKIE)', get_text(args, source)):
+                return [{
+                    "type": "File operation with user input",
+                    "severity": "High",
+                    "suggestion": "Validate file paths before use.",
+                    **_meta(node, True, "# TODO: Validate file paths from user input.")
+                }]
     return []
 
 # 14. Error reporting off
@@ -238,19 +218,14 @@ def detect_error_reporting_off(node, source):
     if node.type == "function_call_expression":
         func = node.child_by_field_name("function")
         args = node.child_by_field_name("arguments")
-
-        if func and args:
-            if get_text(func, source) == "error_reporting":
-                if "0" in get_text(args, source):
-                    return [{
-                        "type": "Error reporting disabled",
-                        "severity": "Medium",
-                        "suggestion": "Avoid disabling error reporting.",
-                        "fixable": True,
-                        "fix": "# TODO: Avoid disabling error reporting.",
-                        "line": get_line(node),
-                        "confidence": "Medium"
-                    }]
+        if func and args and get_text(func, source) == "error_reporting":
+            if "0" in get_text(args, source):
+                return [{
+                    "type": "Error reporting disabled",
+                    "severity": "Medium",
+                    "suggestion": "Avoid disabling error reporting.",
+                    **_meta(node, True, "# TODO: Avoid disabling error reporting.")
+                }]
     return []
 
 # 15. Global variables
@@ -260,10 +235,7 @@ def detect_global_variables(node, source):
             "type": "Global variable usage",
             "severity": "Medium",
             "suggestion": "Avoid global variables.",
-            "fixable": True,
-            "fix": "# TODO: Refactor global variables.",
-            "line": get_line(node),
-            "confidence": "Medium"
+            **_meta(node, True, "# TODO: Refactor global variables.")
         }]
     return []
 
@@ -276,10 +248,7 @@ def detect_empty_catch(node, source):
                 "type": "Empty catch block",
                 "severity": "Low",
                 "suggestion": "Handle exceptions properly.",
-                "fixable": True,
-                "fix": "# TODO: Add error handling inside catch block.",
-                "line": get_line(node),
-                "confidence": "Low"
+                **_meta(node, True, "# TODO: Add error handling inside catch block.")
             }]
     return []
 
@@ -288,20 +257,15 @@ def detect_isset_without_validation(node, source):
     if node.type == "function_call_expression":
         func = node.child_by_field_name("function")
         args = node.child_by_field_name("arguments")
-        if func and args:
-            if get_text(func, source) == "isset":
-                text = get_text(args, source)
-                if re.search(r'\$_(GET|POST|REQUEST|COOKIE)', text):
-                    if not re.search(r'filter_var|intval|htmlspecialchars', text):
-                        return [{
-                            "type": "isset() without validation",
-                            "severity": "Medium",
-                            "suggestion": "Validate input after isset().",
-                            "fixable": True,
-                            "fix": "# TODO: Validate input after isset() call.",
-                            "line": get_line(node),
-                            "confidence": "Medium"
-                        }]
+        if func and args and get_text(func, source) == "isset":
+            text = get_text(args, source)
+            if re.search(r'\$_(GET|POST|REQUEST|COOKIE)', text) and not re.search(r'filter_var|intval|htmlspecialchars', text):
+                return [{
+                    "type": "isset() without validation",
+                    "severity": "Medium",
+                    "suggestion": "Validate input after isset().",
+                    **_meta(node, True, "# TODO: Validate input after isset() call.")
+                }]
     return []
 
 # 18. eval in include
@@ -313,10 +277,7 @@ def detect_eval_in_include(node, source):
                 "type": "eval in include",
                 "severity": "Critical",
                 "suggestion": "Avoid eval in included files.",
-                "fixable": True,
-                "fix": "# TODO: Remove eval from included files.",
-                "line": get_line(node),
-                "confidence": "High"
+                **_meta(node, True, "# TODO: Remove eval from included files.")
             }]
     return []
 
@@ -329,10 +290,7 @@ def detect_double_assignment(node, source):
                 "type": "Double assignment",
                 "severity": "Low",
                 "suggestion": "Check for accidental double assignment.",
-                "fixable": True,
-                "fix": "# TODO: Verify if double assignment is intentional.",
-                "line": get_line(node),
-                "confidence": "Low"
+                **_meta(node, True, "# TODO: Verify if double assignment is intentional.")
             }]
     return []
 
@@ -348,10 +306,16 @@ def detect_unclosed_html_tags(node, source):
                 "type": "Potential unclosed HTML tag",
                 "severity": "Low",
                 "suggestion": "Check HTML output.",
-                "fixable": True,
-                "fix": "# TODO: Verify HTML output for unclosed tags.",
                 "line": i,
-                "confidence": "Low"
+                "confidence": "Low",
+                "fixable": True,
+                "fix": {
+                    "type": "replace",
+                    "mode": "safe",
+                    "start": None,
+                    "end": None,
+                    "content": "# TODO: Verify HTML output for unclosed tags."
+                }
             })
     return issues
 

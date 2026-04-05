@@ -12,17 +12,7 @@ def apply_fixes(
     aggressive=False,
     create_backup=False
 ):
-    """
-    Apply or annotate fixes to a file.
-
-    Modes:
-    - safe (default): apply only safe fixes
-    - aggressive: apply all fixes including manual ones
-    - dry-run: preview changes without modifying file
-
-    Behavior:
-    - Inserts fix comments OR replaces lines (if specified)
-    """
+    import os, json, shutil
 
     changes = []
     fixed_lines = None
@@ -30,8 +20,7 @@ def apply_fixes(
     try:
         # Ask for backup (optional)
         if create_backup and not dry_run:
-            backup_path = filepath + ".bak"
-            shutil.copy(filepath, backup_path)
+            shutil.copy(filepath, filepath + ".bak")
 
         # Validate and filter issues
         valid_issues = []
@@ -42,7 +31,7 @@ def apply_fixes(
             if not issue.get("fixable"):
                 continue
 
-            if not aggressive and issue.get("type") == "manual":
+            if not aggressive and issue.get("confidence") != "high":
                 continue
 
             if not isinstance(line, int) or line <= 0:
@@ -58,83 +47,78 @@ def apply_fixes(
         # Sort bottom → top
         valid_issues.sort(key=lambda x: x["line"], reverse=True)
 
-        # Load file once
-        if valid_issues:
-            with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-                fixed_lines = f.readlines()
+        if not valid_issues:
+            return []
+
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
 
         # Apply fixes
         for issue in valid_issues:
-            line_num = issue["line"]
+            line_idx = issue["line"] - 1
 
-            if line_num > len(fixed_lines):
-                print(f"[!] Skipping out-of-range line {line_num}")
+            if line_idx >= len(lines):
+                print(f"[!] Skipping out-of-range line {lines}")
                 continue
 
-            original = fixed_lines[line_num - 1].rstrip("\r\n")
-            fix_data = issue.get("fix")
+            original = lines[line_idx].rstrip("\n")
+            fix = issue["fix"]
+            fix_type = fix.get("type")
+            content = fix.get("content", "").rstrip()
 
-            if isinstance(fix_data, dict):
-                fix_content = fix_data.get("content", "").rstrip()
-                replace_mode = fix_data.get("type") == "replace"
-            else:
-                fix_content = str(fix_data).rstrip()
-                replace_mode = issue.get("replace", False)
+            indent = len(original) - len(original.lstrip())
+            indent_str = " " * indent
 
-            if not fix_content:
-                print(f"[!] Skipping issue with empty fix: {issue}")
-                continue
+            new_line = None
 
-            indentation = len(original) - len(original.lstrip())
-            indent_str = " " * indentation
-
-            
-
-            if replace_mode:
-                new_line = indent_str + fix_content + "\n"
+            #  Handle fix types properly
+            if fix_type == "replace":
+                new_line = indent_str + content + "\n"
                 if not dry_run:
-                    fixed_lines[line_num - 1] = new_line
-            else:
-                todo_line = indent_str + fix_content
+                    lines[line_idx] = new_line
+
+            elif fix_type == "insert":
+                new_line = indent_str + content + "\n"
                 if not dry_run:
-                    fixed_lines.insert(line_num - 1, todo_line + "\n")
-                new_line = todo_line
+                    lines.insert(line_idx, new_line)
+
+            elif fix_type == "delete":
+                new_line = ""
+                if not dry_run:
+                    lines.pop(line_idx)
+
+            else:
+                continue  # unknown fix type
 
             changes.append({
-                "line": line_num,
+                "line": issue["line"],
                 "original": original,
                 "fixed": new_line.strip(),
                 "type": issue.get("type"),
-                "confidence": issue.get("confidence", "High"),
-                "mode": "aggressive" if aggressive else "safe",
-                "action": "replace" if replace_mode else "insert"
+                "confidence": issue.get("confidence"),
+                "action": fix_type
             })
 
-        # Save file
-        if fixed_lines is not None and not dry_run:
-            with open(filepath, "w", encoding="utf-8", newline="") as f:
-                f.writelines(fixed_lines)
-            print(f"[+] Changes saved to: {filepath}")
+        if not dry_run:
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.writelines(lines)
 
         # JSON report
         if output_json:
             os.makedirs(report_dir, exist_ok=True)
-            base_filename = os.path.basename(filepath)
-            json_path = os.path.join(report_dir, base_filename + ".report.json")
-
-            report_data = {
-                "file": filepath,
-                "total_issues": len(issues),
-                "applied_fixes": len(changes),
-                "changes": changes
-            }
+            json_path = os.path.join(
+                report_dir,
+                os.path.basename(filepath) + ".report.json"
+            )
 
             with open(json_path, "w", encoding="utf-8") as f:
-                json.dump(report_data, f, indent=4)
+                json.dump({
+                    "file": filepath,
+                    "applied_fixes": len(changes),
+                    "changes": changes
+                }, f, indent=4)
 
-            print(f"[+] JSON report saved to: {json_path}")
+        return changes
 
     except Exception as e:
         raise RuntimeError(f"Autofix failed for {filepath}") from e
-
-    return changes
