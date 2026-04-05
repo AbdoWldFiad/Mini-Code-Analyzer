@@ -79,8 +79,8 @@ def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report
 
 def parse_args():
     parser = argparse.ArgumentParser( prog="mini-analyzer", description="Mini Code Analyzer – Static Security Analysis Tool" )
-
-    parser.add_argument( "path", nargs="?", default="test_samples", help="Target file or directory to analyze (default: test_samples)" )
+                                    #TODO: change the default here
+    parser.add_argument( "path", nargs="?", default="D:\shogle\progaming-lang\Projects\DVWA\\testing_autofux\DVWA", help="Target file or directory to analyze (default: test_samples)" )
 
     parser.add_argument( "--fix", "-f", action="store_true", help="Automatically apply safe fixes" )
 
@@ -95,6 +95,11 @@ def parse_args():
 def main():
     args = parse_args()
     target = Path(args.path)
+
+    if args.fix and not args.dry_run:
+        user_input = input("Create backups for all modified files? (y/n): ").strip().lower()
+        create_backup = (user_input == "y")
+    
     if not target.exists():
         console.print(f"[bold red]Error:[/bold red] Path '{target}' does not exist.")
         sys.exit(1)

@@ -1,75 +1,140 @@
 import os
 import json
+import shutil
 
-def apply_fixes(filepath, issues, dry_run=False, output_json=False, report_dir="reports", aggressive=False):
+
+def apply_fixes(
+    filepath,
+    issues,
+    dry_run=False,
+    output_json=False,
+    report_dir="reports",
+    aggressive=False,
+    create_backup=False
+):
     """
-    Apply auto-fixable changes.
+    Apply or annotate fixes to a file.
 
     Modes:
     - safe (default): apply only safe fixes
-    - aggressive: apply manual fixes too
-    - dry-run: preview all fixes (safe + TODO)
+    - aggressive: apply all fixes including manual ones
+    - dry-run: preview changes without modifying file
+
+    Behavior:
+    - Inserts fix comments OR replaces lines (if specified)
     """
 
     changes = []
     fixed_lines = None
 
     try:
-        # Filter fixable issues with line and fix content
-        fixable_issues = [i for i in issues if i.get("fixable") and i.get("line") and i.get("fix")]
+        # Ask for backup (optional)
+        if create_backup and not dry_run:
+            backup_path = filepath + ".bak"
+            shutil.copy(filepath, backup_path)
 
-        # Sort from bottom → top to keep line numbers stable when inserting
-        fixable_issues.sort(key=lambda x: x["line"], reverse=True)
+        # Validate and filter issues
+        valid_issues = []
+        for issue in issues:
+            line = issue.get("line")
+            fix = issue.get("fix")
 
-        for issue in fixable_issues:
-            line_num = issue["line"]
-
-            if fixed_lines is None:
-                with open(filepath, "r", encoding="utf-8") as f:
-                    fixed_lines = f.readlines()
-
-            if line_num <= 0 or line_num > len(fixed_lines):
+            if not issue.get("fixable"):
                 continue
 
-            original = fixed_lines[line_num - 1].rstrip("\n")
-            fix_content = issue.get("fix")
+            if not aggressive and issue.get("type") == "manual":
+                continue
 
-            # Insert TODO comment above the line (with indentation matching original line)
+            if not isinstance(line, int) or line <= 0:
+                print(f"[!] Skipping invalid issue (bad line): {issue}")
+                continue
+
+            if not fix or (isinstance(fix, dict) and not fix.get("content")):
+                print(f"[!] Skipping invalid issue (no fix): {issue}")
+                continue
+
+            valid_issues.append(issue)
+
+        # Sort bottom → top
+        valid_issues.sort(key=lambda x: x["line"], reverse=True)
+
+        # Load file once
+        if valid_issues:
+            with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+                fixed_lines = f.readlines()
+
+        # Apply fixes
+        for issue in valid_issues:
+            line_num = issue["line"]
+
+            if line_num > len(fixed_lines):
+                print(f"[!] Skipping out-of-range line {line_num}")
+                continue
+
+            original = fixed_lines[line_num - 1].rstrip("\r\n")
+            fix_data = issue.get("fix")
+
+            if isinstance(fix_data, dict):
+                fix_content = fix_data.get("content", "").rstrip()
+                replace_mode = fix_data.get("type") == "replace"
+            else:
+                fix_content = str(fix_data).rstrip()
+                replace_mode = issue.get("replace", False)
+
+            if not fix_content:
+                print(f"[!] Skipping issue with empty fix: {issue}")
+                continue
+
             indentation = len(original) - len(original.lstrip())
             indent_str = " " * indentation
-            todo_line = indent_str + fix_content.strip()  # strip to avoid trailing spaces
 
-            if not dry_run:
-                fixed_lines.insert(line_num - 1, todo_line + "\n")
+            
+
+            if replace_mode:
+                new_line = indent_str + fix_content + "\n"
+                if not dry_run:
+                    fixed_lines[line_num - 1] = new_line
+            else:
+                todo_line = indent_str + fix_content
+                if not dry_run:
+                    fixed_lines.insert(line_num - 1, todo_line + "\n")
+                new_line = todo_line
 
             changes.append({
                 "line": line_num,
                 "original": original,
-                "fixed": todo_line,
+                "fixed": new_line.strip(),
                 "type": issue.get("type"),
                 "confidence": issue.get("confidence", "High"),
-                "mode": "safe"
+                "mode": "aggressive" if aggressive else "safe",
+                "action": "replace" if replace_mode else "insert"
             })
 
-        # Save fixed file 
-        if fixed_lines and not dry_run:
-            fixed_path = filepath
-            with open(fixed_path, "w", encoding="utf-8") as f:
+        # Save file
+        if fixed_lines is not None and not dry_run:
+            with open(filepath, "w", encoding="utf-8", newline="") as f:
                 f.writelines(fixed_lines)
-            print(f"[+] Fixed issues saved to: {fixed_path}")
+            print(f"[+] Changes saved to: {filepath}")
 
-        # JSON report 
-        if output_json and issues:
+        # JSON report
+        if output_json:
             os.makedirs(report_dir, exist_ok=True)
             base_filename = os.path.basename(filepath)
             json_path = os.path.join(report_dir, base_filename + ".report.json")
 
+            report_data = {
+                "file": filepath,
+                "total_issues": len(issues),
+                "applied_fixes": len(changes),
+                "changes": changes
+            }
+
             with open(json_path, "w", encoding="utf-8") as f:
-                json.dump(issues, f, indent=4)
+                json.dump(report_data, f, indent=4)
 
             print(f"[+] JSON report saved to: {json_path}")
 
     except Exception as e:
-        print(f"[ERROR] Autofix failed for {filepath}: {e}")
+        raise RuntimeError(f"Autofix failed for {filepath}") from e
 
     return changes
