@@ -27,59 +27,49 @@ class SecureCodeAnalyzer:
         self.language = language.lower()
         self.framework = framework
         self.rules = LANG_RULES.get(self.language, []).copy()
-
-        if not self.rules:
-            raise ValueError(f"No rules found for language: {self.language}")
-
         if framework:
             self.rules += FRAMEWORK_RULES.get(framework, [])
-
         self.issues = []
-        self.rule_errors = []
 
     def analyze_file(self, filepath):
+        """Analyze a file and return a list of issues."""
         self.issues = []
-        self.rule_errors = []
 
-        # File reading
+        # File Reading Safety 
         try:
-            with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            with open(filepath, "r", encoding="utf-8") as f:
                 source = f.read()
+        except FileNotFoundError:
+            return [{"error": f"File not found: {filepath}"}]
+        except UnicodeDecodeError:
+            return [{"error": f"Encoding error in file: {filepath}"}]
         except Exception as e:
-            return [{
-                "type": "FileError",
-                "message": str(e),
-                "file": filepath
-            }]
+            return [{"error": f"Unexpected error reading file {filepath}: {str(e)}"}]
 
         #  Parsing & Analysis Safety 
         try:
             if self.language == "python":
                 tree = ast.parse(source, filename=filepath)
-                self._analyze_ast(tree, filepath)
+                self._analyze_ast(tree)
             else:
-                self._analyze_tree_sitter(source, filepath)
+                self._analyze_tree_sitter(source)
 
         except SyntaxError as e:
-            self.issues.append(self._normalize_issue({
+            self.issues.append({
                 "type": "SyntaxError",
                 "message": str(e),
-                "line": getattr(e, "lineno", None),
-                "file": filepath
-            }))
+                "line": getattr(e, "lineno", None)
+            })
         except Exception as e:
-            self.issues.append(self._normalize_issue({
+            self.issues.append({
                 "type": "AnalyzerError",
-                "message": str(e),
-                "file": filepath
-            }))
+                "message": str(e)
+            })
 
-        self._deduplicate_issues()
         return self.issues
 
-    # Python AST Analysis
-
-    def _analyze_ast(self, tree, filepath):
+    # Python AST Analysis 
+    def _analyze_ast(self, tree):
         context = AnalysisContext()
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
@@ -90,108 +80,38 @@ class SecureCodeAnalyzer:
                 try:
                     result = rule(node, context)
                     if result:
-                        self._handle_result(result, filepath)
-
+                        if isinstance(result, list):
+                            self.issues.extend(result)
+                        else:
+                            self.issues.append(result)
                 except Exception as e:
-                    self.rule_errors.append({
-                        "rule": rule.__name__,
-                        "error": str(e),
-                        "node": type(node).__name__
-                    })
+                    print(f"[WARN] Rule {rule.__name__} failed on node {type(node).__name__}: {e}")
 
-
-    # Tree-sitter Analysis
-
-    def _analyze_tree_sitter(self, source, filepath):
+    #  Tree-sitter Analysis 
+    def _analyze_tree_sitter(self, source):
+        """Analyze non-Python source with Tree-sitter."""
         parser = get_parser(self.language)
         tree = parser.parse(source.encode("utf-8"))
-        root = tree.root_node
+        root_node = tree.root_node
+        self._walk_tree_sitter(root_node, source)
 
-        context = {"source": source}
-
-        self._walk_tree_sitter(root, context, filepath)
-
-    def _walk_tree_sitter(self, node, context, filepath):
+    def _walk_tree_sitter(self, node, source):
+        """Recursively walk Tree-sitter nodes and apply rules."""
         for rule in self.rules:
             try:
-                result = rule(node, context)
-
+                result = rule(node, source)
                 if result:
-                    self._handle_result(result, filepath, node)
-
+                    if isinstance(result, list):
+                        self.issues.extend(result)
+                    else:
+                        self.issues.append(result)
             except Exception as e:
-                self.rule_errors.append({
-                    "rule": rule.__name__,
-                    "error": str(e),
-                    "node": node.type
-                })
+                print( f"[WARN] Rule {rule.__name__} failed " f"on {type(node).__name__} " f"(line {getattr(node, 'lineno', 'N/A')}): {e}" )
 
         for child in node.children:
-            self._walk_tree_sitter(child, context, filepath)
+            self._walk_tree_sitter(child, source)
 
-    # Helpers
-
-    def _handle_result(self, result, filepath, node=None):
-        if isinstance(result, list):
-            for r in result:
-                self.issues.append(self._normalize_issue(r, filepath, node))
-        else:
-            self.issues.append(self._normalize_issue(result, filepath, node))
-
-    def _normalize_issue(self, issue, filepath=None, node=None):
-        # Extract line (AST or Tree-sitter)
-        line = issue.get("line")
-
-        if line is None and node is not None:
-            if hasattr(node, "lineno"):  # AST
-                line = node.lineno
-            elif hasattr(node, "start_point"):  # Tree-sitter
-                line = node.start_point[0] + 1
-
-        # Normalize severity
-        severity = issue.get("severity", "low")
-        severity = str(severity).lower()
-        if severity not in {"low", "medium", "high"}:
-            severity = "low"
-
-        # Normalize fix
-        fix = issue.get("fix")
-        if isinstance(fix, str):
-            fix = {
-                "type": "insert",
-                "content": fix.strip()
-            }
-
-        return {
-            "type": issue.get("type", "Unknown"),
-            "message": issue.get("message", ""),
-            "line": line,
-            "severity": severity,
-            "fix": fix,
-            "fixable": bool(fix and fix.get("content")),
-            "confidence": issue.get("confidence", "medium"),
-            "file": issue.get("file", filepath)
-        }
-
-    def _deduplicate_issues(self):
-        seen = set()
-        unique = []
-
-        for issue in self.issues:
-            key = (
-                issue.get("type"),
-                issue.get("line"),
-                issue.get("message")
-            )
-
-            if key not in seen:
-                seen.add(key)
-                unique.append(issue)
-
-        self.issues = unique
-
-
-# CLI Runner
+# Ctrl+C Handling
 def run_analysis(files, language="python", framework=None):
     analyzer = SecureCodeAnalyzer(language=language, framework=framework)
 
@@ -208,4 +128,4 @@ def run_analysis(files, language="python", framework=None):
                 print(f"[OK] No issues found in {file}")
 
     except KeyboardInterrupt:
-        print("\n[INFO] Scan interrupted by user.")
+        print("\n[INFO] Scan interrupted by user (Ctrl+C). Exiting gracefully...")
