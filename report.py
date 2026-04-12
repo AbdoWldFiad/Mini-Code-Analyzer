@@ -86,3 +86,16 @@ def print_report(filepath, issues, global_summary=None):
     except KeyboardInterrupt:
         console.print("\n[bold yellow][!] Interrupted while generating report[/bold yellow]")
         raise  # re-raise to be handled by main()
+
+def print_summary(severity_totals, total_issues):
+    console.print("\n[bold underline green]Severity Breakdown:[/bold underline green]\n")
+
+    # Keep consistent order
+    order = ["critical", "high", "medium", "low", "n/a"]
+
+    for sev in order:
+        if sev in severity_totals:
+            color = SEVERITY_COLORS.get(sev, "white")
+            console.print(f"{sev.capitalize()}: [{color}]{severity_totals[sev]}[/{color}]")
+
+    console.print(f"\n[bold red]Total Issues Found: {total_issues}[/bold red]\n")

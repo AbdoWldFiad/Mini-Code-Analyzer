@@ -4,7 +4,7 @@ import sys
 import argparse
 from pathlib import Path
 from analyzer import SecureCodeAnalyzer
-from report import SEVERITY_COLORS, print_report
+from report import SEVERITY_COLORS, print_report, print_summary
 from autofix import apply_fixes
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -28,6 +28,10 @@ def detect_framework(root: Path):
     return None
 
 def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report=False, verbose=False,):
+    # for summary
+    severity_totals = defaultdict(int)
+    total_issues = 0
+    
     framework = detect_framework(directory)
     console.print(f"[bold cyan]Detected framework:[/bold cyan] {framework or 'None'}\n")
 
@@ -63,8 +67,13 @@ def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report
 
             analyzer = SecureCodeAnalyzer(language=lang, framework=framework)
             issues = analyzer.analyze_file(str(path))
+            
+            total_issues += len(issues)
+            for issue in issues:
+                sev = issue.get("severity", "n/a").lower()
+                severity_totals[sev] += 1
+            
             # Print report depending on mode
-
             if verbose:
                 print_report(str(path), issues)
             
@@ -80,7 +89,8 @@ def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report
                 )
 
             progress.advance(task)
-
+    print_summary(severity_totals, total_issues)
+    
     console.print(Panel(Text("Analysis Complete!", style="bold green"), expand=False))
 
 def parse_args():
