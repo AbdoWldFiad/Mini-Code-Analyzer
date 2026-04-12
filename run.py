@@ -4,12 +4,14 @@ import sys
 import argparse
 from pathlib import Path
 from analyzer import SecureCodeAnalyzer
-from report import print_report
+from report import SEVERITY_COLORS, print_report
 from autofix import apply_fixes
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.panel import Panel
 from rich.text import Text
+from rich.table import Table
+from collections import defaultdict
 
 console = Console()
 REPORTS_DIR = Path("reports")
@@ -25,7 +27,7 @@ def detect_framework(root: Path):
         return "react"
     return None
 
-def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report=False):
+def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report=False, verbose=False,):
     framework = detect_framework(directory)
     console.print(f"[bold cyan]Detected framework:[/bold cyan] {framework or 'None'}\n")
 
@@ -61,7 +63,11 @@ def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report
 
             analyzer = SecureCodeAnalyzer(language=lang, framework=framework)
             issues = analyzer.analyze_file(str(path))
-            print_report(str(path), issues)
+            # Print report depending on mode
+
+            if verbose:
+                print_report(str(path), issues)
+            
 
             # Apply fixes, dry-run, or generate centralized JSON report
             if autofix or dry_run or json_report:
@@ -90,6 +96,8 @@ def parse_args():
 
     parser.add_argument( "--aggressive", "-a", action="store_true", help="Apply unsafe/manual fixes (use with caution)" )
 
+    parser.add_argument( "--verbose", "-v", action="store_true", help="Verbose mode (show detailed per-file reports)" )
+    
     return parser.parse_args()
 
 def main():
@@ -104,7 +112,9 @@ def main():
         console.print(f"[bold red]Error:[/bold red] Path '{target}' does not exist.")
         sys.exit(1)
     try:
-        analyze_directory( target, autofix=args.fix, dry_run=args.dry_run, json_report=args.json )
+        analyze_directory( target, autofix=args.fix, dry_run=args.dry_run,
+         json_report=args.json, verbose=args.verbose,
+        )
     except KeyboardInterrupt:
         print("\n[INFO] Scan interrupted by user (Ctrl+C). Exiting gracefully...")
         return
