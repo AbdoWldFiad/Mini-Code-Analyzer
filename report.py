@@ -90,12 +90,33 @@ def print_report(filepath, issues, global_summary=None):
 def print_summary(severity_totals, total_issues):
     console.print("\n[bold underline green]Severity Breakdown:[/bold underline green]\n")
 
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Severity", style="bold")
+    table.add_column("Count", justify="right")
+    table.add_column("Percentage", justify="right")
+
     # Keep consistent order
     order = ["critical", "high", "medium", "low", "n/a"]
 
+    has_data = False
+
     for sev in order:
         if sev in severity_totals:
+            has_data = True
             color = SEVERITY_COLORS.get(sev, "white")
-            console.print(f"{sev.capitalize()}: [{color}]{severity_totals[sev]}[/{color}]")
+            count = severity_totals[sev]
+            percent = (count / total_issues * 100) if total_issues else 0
+            table.add_row(
+                f"[{color}]{sev.capitalize()}[/{color}]",
+                f"[{color}]{severity_totals[sev]}[/{color}]",
+                f"[{color}]{percent:.1f}%[/{color}]",
+            )
 
-    console.print(f"\n[bold red]Total Issues Found: {total_issues}[/bold red]\n")
+    if not has_data:
+        table.add_row("[green]No issues[/green]", "[green]0[/green]")
+
+    console.print(table)
+
+    console.print(
+        f"\n[bold red]Total Issues Found: {total_issues}[/bold red]\n"
+    )
