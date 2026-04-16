@@ -17,14 +17,36 @@ console = Console()
 REPORTS_DIR = Path("reports")
 REPORTS_DIR.mkdir(exist_ok=True)
 
+EXTENSION_MAP = {
+    ".py": "python",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".ts": "javascript",
+    ".tsx": "javascript",
+    ".html": "html",
+    ".php": "php",
+}
+
 def detect_framework(root: Path):
-    files = [f.lower() for f in os.listdir(root)]
+    files = {f.lower() for f in os.listdir(root)}
+
+    # Django (highest confidence)
     if "manage.py" in files:
         return "django"
-    if "app.py" in files or "flask" in " ".join(files):
+
+    # Flask (check common structure signals)
+    if (
+        "app.py" in files or
+        "wsgi.py" in files or
+        "flask" in files
+    ):
         return "flask"
-    if any(f.endswith(".jsx") or f.endswith(".tsx") for f in files):
-        return "react"
+
+    # React (needs package.json + JSX/TSX)
+    if "package.json" in files:
+        if any(f.endswith((".jsx", ".tsx")) for f in files):
+            return "react"
+
     return None
 
 def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report=False, verbose=False,):
@@ -52,16 +74,10 @@ def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report
 
         for path in all_files:
             # Determine language
-            lang = None
-            if path.suffix == ".py":
-                lang = "python"
-            elif path.suffix in [".js", ".jsx"]:
-                lang = "javascript"
-            elif path.suffix == ".html":
-                lang = "html"
-            elif path.suffix == ".php":
-                lang = "php"
-            else:
+            suffix = path.suffix.lower()
+            lang = EXTENSION_MAP.get(suffix)
+
+            if not lang:
                 progress.advance(task)
                 continue
 
