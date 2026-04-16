@@ -1,5 +1,7 @@
+from rich.text import Text
 from rich.console import Console
 from rich.table import Table
+from rich.panel import Panel
 from collections import defaultdict
 
 console = Console()
@@ -118,5 +120,9 @@ def print_summary(severity_totals, total_issues):
     console.print(table)
 
     console.print(
-        f"\n[bold red]Total Issues Found: {total_issues}[/bold red]\n"
+        Panel.fit(
+            Text(f"Total Issues Found: {total_issues}", style="bold red"),
+            title="Scan Summary",
+            border_style="red"
+        )
     )
