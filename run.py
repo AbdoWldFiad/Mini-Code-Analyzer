@@ -96,7 +96,7 @@ def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report
 def parse_args():
     parser = argparse.ArgumentParser( prog="mini-analyzer", description="Mini Code Analyzer – Static Security Analysis Tool" )
                                     #TODO: change the default here
-    parser.add_argument( "path", nargs="?", default="D:\shogle\progaming-lang\Projects\DVWA\\testing_autofux\DVWA", help="Target file or directory to analyze (default: test_samples)" )
+    parser.add_argument( "path", nargs="?", default=r"D:\shogle\progaming-lang\Projects\DVWA\testing_autofux\DVWA", help="Target file or directory to analyze (default: test_samples)" )
 
     parser.add_argument( "--fix", "-f", action="store_true", help="Automatically apply safe fixes" )
 

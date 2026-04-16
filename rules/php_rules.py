@@ -6,24 +6,20 @@ def get_text(node, source):
 def get_line(node):
     return node.start_point[0] + 1
 
-def _meta(node, fixable, fix_content, confidence="High"):
-    fix_type = fix_content.get("type", "replace") if isinstance(fix_content, dict) else "replace"
-    mode = fix_content.get("mode", "safe") if isinstance(fix_content, dict) else "manual"
-    content = fix_content.get("content", fix_content) if isinstance(fix_content, dict) else fix_content
+def _meta(node, fixable=False, fix=None, confidence="high"):
     return {
         "fixable": fixable,
-        "fix": {
-            "type": fix_type,
-            "mode": mode,
-            "start": getattr(node, "start_byte", None),
-            "end": getattr(node, "end_byte", None),
-            "content": content
-        },
+        "fix": fix,
         "confidence": confidence,
-        "line": get_line(node)
+        "line": get_line(node),
+        "start_byte": node.start_byte,
+        "end_byte": node.end_byte
     }
 
-# 1. Detect eval()
+def hint(msg):
+    return {"type": "manual_hint", "hint": msg}
+
+# 1. eval()
 def detect_eval_usage_php(node, source):
     if node.type == "function_call_expression":
         func = node.child_by_field_name("function")
@@ -32,11 +28,11 @@ def detect_eval_usage_php(node, source):
                 "type": "Use of eval()",
                 "severity": "High",
                 "suggestion": "Avoid using eval().",
-                **_meta(node, True, "# TODO: Replace eval safely\n# Use ast.literal_eval() or other safe alternatives.")
+                **_meta(node, True, hint("Replace eval() with a safer alternative."), "medium")
             }]
     return []
 
-# 2. Detect shell execution
+# 2. shell execution
 def detect_shell_exec(node, source):
     if node.type == "function_call_expression":
         func = node.child_by_field_name("function")
@@ -47,11 +43,11 @@ def detect_shell_exec(node, source):
                     "type": "Shell execution",
                     "severity": "High",
                     "suggestion": "Avoid executing shell commands.",
-                    **_meta(node, True, "# TODO: Review shell execution for security.")
+                    **_meta(node, True, hint("Review this shell execution for security risks."), "medium")
                 }]
     return []
 
-# 3. Dynamic include/require
+# 3. dynamic include
 def detect_dynamic_include(node, source):
     if node.type in ["include_expression", "require_expression"]:
         arg = node.child_by_field_name("argument")
@@ -59,40 +55,43 @@ def detect_dynamic_include(node, source):
             return [{
                 "type": "Dynamic include/require",
                 "severity": "High",
-                "suggestion": "Avoid dynamic file inclusion.",
-                **_meta(node, True, "# TODO: Replace dynamic include with static paths.")
+                **_meta(node, True, hint("Avoid dynamic file inclusion; use static paths."), "medium")
             }]
     return []
 
-# 4. Deprecated mysql_* functions
+# 4. mysql deprecated
 def detect_mysql_deprecated(node, source):
     if node.type == "function_call_expression":
         func = node.child_by_field_name("function")
-        if func:
-            name = get_text(func, source)
-            if name.startswith("mysql_"):
-                return [{
-                    "type": "Deprecated mysql_*",
-                    "severity": "High",
-                    "suggestion": "Use mysqli or PDO instead.",
-                    **_meta(node, True, "# TODO: Replace mysql_* functions with mysqli or PDO.")
-                }]
-    return []
-
-# 5. Unescaped echo/print
-def detect_unescaped_output(node, source):
-    if node.type == "echo_statement":
-        text = get_text(node, source)
-        if not re.search(r'htmlspecialchars|htmlentities', text):
+        if func and get_text(func, source).startswith("mysql_"):
             return [{
-                "type": "Unescaped output",
+                "type": "Deprecated mysql_*",
                 "severity": "High",
-                "suggestion": "Escape output to prevent XSS.",
-                **_meta(node, True, "# TODO: Add escaping function like htmlspecialchars() to output.")
+                **_meta(node, True, hint("Replace mysql_* with mysqli or PDO."), "medium")
             }]
     return []
 
-# 6. Unsanitized input ($_GET, $_POST)
+# 5. unescaped output
+def detect_unescaped_output(node, source):
+    if node.type == "echo_statement":
+        text = get_text(node, source)
+
+        if not re.search(r'htmlspecialchars|htmlentities', text):
+            expr = text.replace("echo", "", 1).strip().rstrip(";")
+
+            return [{
+                "type": "Unescaped output",
+                "severity": "High",
+                **_meta(node, True, {
+                    "type": "replace",
+                    "start": node.start_byte,
+                    "end": node.end_byte,
+                    "content": f"echo htmlspecialchars({expr}, ENT_QUOTES, 'UTF-8');"
+                })
+            }]
+    return []
+
+# 6. unsanitized input
 def detect_unsanitized_input(node, source):
     if node.type == "subscript_expression":
         text = get_text(node, source)
@@ -100,12 +99,11 @@ def detect_unsanitized_input(node, source):
             return [{
                 "type": "Unsanitized input",
                 "severity": "High",
-                "suggestion": "Sanitize user input.",
-                **_meta(node, True, "# TODO: Sanitize this user input before usage.")
+                **_meta(node, True, hint("Sanitize this user input before usage."), "medium")
             }]
     return []
 
-# 7. base64_decode usage
+# 7. base64_decode (not auto-fixable)
 def detect_base64_decode(node, source):
     if node.type == "function_call_expression":
         func = node.child_by_field_name("function")
@@ -113,50 +111,65 @@ def detect_base64_decode(node, source):
             return [{
                 "type": "base64_decode usage",
                 "severity": "Medium",
-                **_meta(node, False, "# TODO: Ensure it's not hiding malicious code.")
+                **_meta(node, False)
             }]
     return []
 
-# 8. Assignment inside condition
+# 8. assignment in condition
 def detect_assignment_in_if(node, source):
     if node.type == "if_statement":
         condition = node.child_by_field_name("condition")
         if condition:
             text = get_text(condition, source)
             if "=" in text and "==" not in text and "===" not in text:
+                fixed = text.replace("=", "==", 1)
                 return [{
                     "type": "Assignment in condition",
                     "severity": "High",
-                    "suggestion": "Use comparison operators instead of assignment in conditions.",
-                    **_meta(node, True, "# TODO: Replace assignment with comparison operator.")
+                    **_meta(condition, True, {
+                        "type": "replace",
+                        "start": condition.start_byte,
+                        "end": condition.end_byte,
+                        "content": fixed
+                    })
                 }]
     return []
 
-# 9. eval with user input
+# 9. eval + user input
 def detect_eval_user_input(node, source):
     if node.type == "function_call_expression":
         func = node.child_by_field_name("function")
         args = node.child_by_field_name("arguments")
         if func and args and get_text(func, source) == "eval":
-            if re.search(r'\$_(GET|POST|REQUEST|COOKIE)', get_text(args, source)):
+            if re.search(r'\$_', get_text(args, source)):
                 return [{
                     "type": "eval() with user input",
                     "severity": "Critical",
-                    "suggestion": "Never pass user input to eval().",
-                    **_meta(node, True, "# TODO: Remove eval on user input immediately; very dangerous.")
+                    **_meta(node, True, {
+                        "type": "manual_hint",
+                        "hint": "CRITICAL: Remove eval() on user input. This is a remote code execution risk."
+                    }, "high")
                 }]
     return []
 
-# 10. md5 password hashing
+# 10. md5
 def detect_md5_password(node, source):
     if node.type == "function_call_expression":
         func = node.child_by_field_name("function")
-        if func and get_text(func, source) == "md5":
+        args = node.child_by_field_name("arguments")
+
+        if func and args and get_text(func, source) == "md5":
+            arg_text = get_text(args, source)[1:-1]  # remove ()
+
             return [{
                 "type": "Weak hashing (md5)",
                 "severity": "High",
-                "suggestion": "Use password_hash() instead.",
-                **_meta(node, True, "# TODO: Replace md5 with password_hash().")
+                **_meta(node, True, {
+                    "type": "replace",
+                    "start": node.start_byte,
+                    "end": node.end_byte,
+                    "content": f"password_hash({arg_text}, PASSWORD_DEFAULT)"
+                })
             }]
     return []
 
@@ -170,131 +183,131 @@ def detect_unserialize_user(node, source):
                 return [{
                     "type": "Unserialize user input",
                     "severity": "Critical",
-                    "suggestion": "Avoid unserializing user input.",
-                    **_meta(node, True, "# TODO: Validate or avoid unserialize on user input.")
+                    **_meta(node, True, hint("Avoid unserialize() on user input."), "high")
                 }]
     return []
 
-# 12. Short PHP tags (run once)
+# 12. short tags (FIXED PROPERLY)
 def detect_short_tags(node, source):
     if node.type != "program":
         return []
+
     issues = []
-    for i, line in enumerate(source.splitlines(), 1):
-        if re.search(r'<\?(?!php)', line):
-            issues.append({
-                "type": "Short PHP tag",
-                "severity": "Low",
-                "line": i,
-                "confidence": "Medium",
-                "fixable": True,
-                "fix": {
-                    "type": "replace",
-                    "mode": "safe",
-                    "start": None,
-                    "end": None,
-                    "content": "# TODO: Replace short PHP tag with <?php."
-                }
-            })
+    for match in re.finditer(r'<\?(?!php)', source):
+        issues.append({
+            "type": "Short PHP tag",
+            "severity": "Low",
+            "fixable": True,
+            "confidence": "high",
+            "start_byte": match.start(),
+            "end_byte": match.start() + 2,
+            "fix": {
+                "type": "replace",
+                "start": match.start(),
+                "end": match.start() + 2,
+                "content": "<?php"
+            }
+        })
     return issues
 
-# 13. File operations with user input
+# 13. file input
 def detect_file_user_input(node, source):
     if node.type == "function_call_expression":
         func = node.child_by_field_name("function")
         args = node.child_by_field_name("arguments")
         if func and args and get_text(func, source) in ["fopen","fread","fwrite","file_put_contents"]:
-            if re.search(r'\$_(GET|POST|REQUEST|COOKIE)', get_text(args, source)):
+            if re.search(r'\$_', get_text(args, source)):
                 return [{
                     "type": "File operation with user input",
                     "severity": "High",
-                    "suggestion": "Validate file paths before use.",
-                    **_meta(node, True, "# TODO: Validate file paths from user input.")
+                    **_meta(node, True, hint("Validate file paths from user input."), "medium")
                 }]
     return []
 
-# 14. Error reporting off
+# 14. error_reporting(0)
 def detect_error_reporting_off(node, source):
     if node.type == "function_call_expression":
         func = node.child_by_field_name("function")
-        args = node.child_by_field_name("arguments")
-        if func and args and get_text(func, source) == "error_reporting":
-            if "0" in get_text(args, source):
-                return [{
-                    "type": "Error reporting disabled",
-                    "severity": "Medium",
-                    "suggestion": "Avoid disabling error reporting.",
-                    **_meta(node, True, "# TODO: Avoid disabling error reporting.")
-                }]
-    return []
 
-# 15. Global variables
-def detect_global_variables(node, source):
-    if node.type == "global_declaration":
-        return [{
-            "type": "Global variable usage",
-            "severity": "Medium",
-            "suggestion": "Avoid global variables.",
-            **_meta(node, True, "# TODO: Refactor global variables.")
-        }]
-    return []
-
-# 16. Empty catch blocks
-def detect_empty_catch(node, source):
-    if node.type == "catch_clause":
-        body = node.child_by_field_name("body")
-        if body and len(body.children) <= 2:  # empty catch block {}
+        if func and get_text(func, source) == "error_reporting":
             return [{
-                "type": "Empty catch block",
-                "severity": "Low",
-                "suggestion": "Handle exceptions properly.",
-                **_meta(node, True, "# TODO: Add error handling inside catch block.")
+                "type": "Error reporting disabled",
+                "severity": "Medium",
+                **_meta(node, True, {
+                    "type": "replace",
+                    "start": node.start_byte,
+                    "end": node.end_byte,
+                    "content": "error_reporting(E_ALL)"
+                })
             }]
     return []
 
-# 17. isset without validation
+# 15. globals
+def detect_global_variables(node, source):
+    if node.type == "global_declaration":
+        original = get_text(node, source)
+        return [{
+            "type": "Global variable usage",
+            "severity": "Medium",
+            **_meta(node, True, {
+                "type": "replace",
+                "start": node.start_byte,
+                "end": node.end_byte,
+                "content": f"// TODO: Refactor globals\n// {original}"
+            })
+        }]
+    return []
+
+# 16. empty catch
+def detect_empty_catch(node, source):
+    if node.type == "catch_clause":
+        body = node.child_by_field_name("body")
+        if body and len(body.children) <= 2:
+            return [{
+                "type": "Empty catch block",
+                "severity": "Low",
+                **_meta(node, True, hint("Add proper error handling."), "medium")
+            }]
+    return []
+
+# 17. isset validation
 def detect_isset_without_validation(node, source):
     if node.type == "function_call_expression":
         func = node.child_by_field_name("function")
         args = node.child_by_field_name("arguments")
         if func and args and get_text(func, source) == "isset":
             text = get_text(args, source)
-            if re.search(r'\$_(GET|POST|REQUEST|COOKIE)', text) and not re.search(r'filter_var|intval|htmlspecialchars', text):
+            if re.search(r'\$_', text):
                 return [{
                     "type": "isset() without validation",
                     "severity": "Medium",
-                    "suggestion": "Validate input after isset().",
-                    **_meta(node, True, "# TODO: Validate input after isset() call.")
+                    **_meta(node, True, hint("Validate input after isset()."), "medium")
                 }]
     return []
 
 # 18. eval in include
 def detect_eval_in_include(node, source):
     if node.type in ["include_expression", "require_expression"]:
-        text = get_text(node, source)
-        if "eval(" in text:
+        if "eval(" in get_text(node, source):
             return [{
                 "type": "eval in include",
                 "severity": "Critical",
-                "suggestion": "Avoid eval in included files.",
-                **_meta(node, True, "# TODO: Remove eval from included files.")
+                **_meta(node, True, hint("Remove eval from included files."), "high")
             }]
     return []
 
-# 19. Double assignment
+# 19. double assignment
 def detect_double_assignment(node, source):
     if node.type == "assignment_expression":
-        text = get_text(node, source)
-        if re.search(r'\$[a-zA-Z_]\w*\s*=\s*\$[a-zA-Z_]\w*\s*=', text):
+        if re.search(r'\$\w+\s*=\s*\$\w+\s*=', get_text(node, source)):
             return [{
                 "type": "Double assignment",
                 "severity": "Low",
-                "suggestion": "Check for accidental double assignment.",
-                **_meta(node, True, "# TODO: Verify if double assignment is intentional.")
+                **_meta(node, True, hint("Check if double assignment is intentional."), "low")
             }]
     return []
 
-# 20. Unclosed HTML tags (program-level regex)
+# 20. HTML issues (manual only)
 def detect_unclosed_html_tags(node, source):
     if node.type != "program":
         return []
@@ -305,17 +318,10 @@ def detect_unclosed_html_tags(node, source):
             issues.append({
                 "type": "Potential unclosed HTML tag",
                 "severity": "Low",
-                "suggestion": "Check HTML output.",
                 "line": i,
-                "confidence": "Low",
+                "confidence": "low",
                 "fixable": True,
-                "fix": {
-                    "type": "replace",
-                    "mode": "safe",
-                    "start": None,
-                    "end": None,
-                    "content": "# TODO: Verify HTML output for unclosed tags."
-                }
+                "fix": hint("Check HTML output for unclosed tags.")
             })
     return issues
 

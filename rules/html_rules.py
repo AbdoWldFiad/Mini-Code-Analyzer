@@ -12,18 +12,25 @@ def _meta(node, fixable=False, fix=None, confidence="high"):
         "fixable": fixable,
         "fix": fix,
         "confidence": confidence,
-        "line": get_line(node)
+        "line": get_line(node),
+        "start_byte": node.start_byte,
+        "end_byte": node.end_byte
     }
 
 # 1. Inline JS (manual)
 def detect_inline_js(node, source):
     if node.type == "attribute":
-        if re.search(r'on\w+\s*=', get_text(node, source)):
+        text = get_text(node, source)
+        if re.search(r'on\w+\s*=', text):
             return [{
                 "type": "Inline JavaScript",
-                "message": "Move inline JS to external script.",
                 "severity": "medium",
-                **_meta(node)
+                **_meta(node, True, {
+                    "type": "replace",
+                    "start": node.start_byte,
+                    "end": node.end_byte,
+                    "content": f'/* TODO: move to JS */ {text}'
+                })
             }]
     return []
 
@@ -61,9 +68,13 @@ def detect_inline_script(node, source):
         if "src=" not in text:
             return [{
                 "type": "Inline script",
-                "message": "Move script to external file.",
                 "severity": "medium",
-                **_meta(node)
+                **_meta(node, True, {
+                    "type": "replace",
+                    "start": node.start_byte,
+                    "end": node.end_byte,
+                    "content": '<script src="app.js"></script>'
+                })
             }]
     return []
 
@@ -87,21 +98,28 @@ def detect_deprecated_tags(node, source):
         if re.search(r'<(font|center|marquee)\b', get_text(node, source)):
             return [{
                 "type": "Deprecated HTML tag",
-                "message": "Replace with CSS.",
                 "severity": "medium",
-                **_meta(node, False, None, "medium")
+                **_meta(node, True, {
+                    "type": "manual_hint",
+                    "hint": "Replace deprecated tag with CSS."
+                }, "medium")
             }]
     return []
 
 # 7. Inline styles (manual)
 def detect_inline_styles(node, source):
     if node.type == "attribute":
-        if "style=" in get_text(node, source):
+        text = get_text(node, source)
+        if "style=" in text:
             return [{
                 "type": "Inline styles",
-                "message": "Move styles to CSS.",
                 "severity": "low",
-                **_meta(node, False, None, "low")
+                **_meta(node, True, {
+                    "type": "replace",
+                    "start": node.start_byte,
+                    "end": node.end_byte,
+                    "content": f'/* TODO CSS */ {text}'
+                })
             }]
     return []
 
@@ -148,27 +166,40 @@ def detect_password_autocomplete(node, source):
 
 # 11. Missing lang
 def detect_html_no_lang(node, source):
-    if node.type == "document":
-        if "<html" in source and "lang=" not in source:
+    if node.type == "element":
+        text = get_text(node, source)
+
+        if text.startswith("<html") and "lang=" not in text:
+            fixed = text.replace("<html", '<html lang="en"', 1)
+
             return [{
                 "type": "Missing lang attribute",
-                "message": "Added lang attribute.",
                 "severity": "low",
-                **_meta(node, True, {"type": "insert", "start": node.start_byte, "end": node.end_byte, "content": '<html lang="en">'})
+                **_meta(node, True, {
+                    "type": "replace",
+                    "start": node.start_byte,
+                    "end": node.end_byte,
+                    "content": fixed
+                })
             }]
     return []
 
 # 12. Missing viewport
 def detect_viewport_meta(node, source):
-    if node.type == "document":
-        if "viewport" not in source:
+    if node.type == "element":
+        text = get_text(node, source)
+
+        if text.startswith("<head") and "viewport" not in source:
+            insert_pos = node.end_byte - 7  # before </head>
+
             return [{
                 "type": "Missing viewport meta",
-                "message": "Added viewport meta.",
                 "severity": "low",
                 **_meta(node, True, {
                     "type": "insert",
-                    "content": '<meta name="viewport" content="width=device-width, initial-scale=1">'
+                    "start": insert_pos,
+                    "end": insert_pos,
+                    "content": '\n<meta name="viewport" content="width=device-width, initial-scale=1">'
                 })
             }]
     return []
@@ -263,13 +294,19 @@ def detect_script_http(node, source):
 def detect_media_no_controls(node, source):
     if node.type == "element":
         text = get_text(node, source)
+
         if re.search(r'<(video|audio)\b', text) and "controls" not in text:
             fixed = text.replace(">", " controls>", 1)
+
             return [{
                 "type": "Media without controls",
-                "message": "Added controls attribute.",
                 "severity": "low",
-                **_meta(node, True, {"type": "replace", "content": fixed}, "medium")
+                **_meta(node, True, {
+                    "type": "replace",
+                    "start": node.start_byte,
+                    "end": node.end_byte,
+                    "content": fixed
+                })
             }]
     return []
 
@@ -290,12 +327,15 @@ def detect_input_no_type(node, source):
 # 21. Inline event handlers (manual)
 def detect_inline_event_handlers(node, source):
     if node.type == "attribute":
-        if re.match(r'on\w+=', get_text(node, source)):
+        text = get_text(node, source)
+        if re.match(r'on\w+=', text):
             return [{
                 "type": "Inline event handler",
-                "message": "Use addEventListener instead.",
                 "severity": "medium",
-                **_meta(node)
+                **_meta(node, True, {
+                    "type": "manual_hint",
+                    "hint": "Use addEventListener instead."
+                }, "medium")
             }]
     return []
 
@@ -303,12 +343,15 @@ def detect_inline_event_handlers(node, source):
 def detect_missing_csrf_token(node, source):
     if node.type == "element":
         text = get_text(node, source)
+
         if text.startswith("<form") and not re.search(r'csrf|token', text, re.I):
             return [{
                 "type": "Missing CSRF token",
-                "message": "Add CSRF protection.",
                 "severity": "high",
-                **_meta(node)
+                **_meta(node, True, {
+                    "type": "manual_hint",
+                    "hint": "Add CSRF token input field."
+                }, "high")
             }]
     return []
 

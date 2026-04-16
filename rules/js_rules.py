@@ -12,69 +12,84 @@ def _meta(node, fixable=False, fix=None, confidence="high"):
         "fixable": fixable,
         "fix": fix,
         "confidence": confidence,
-        "line": get_line(node)
+        "line": get_line(node),
+        "start_byte": node.start_byte,
+        "end_byte": node.end_byte
     }
 
-# 1. eval usage (manual)
+# 1. eval usage (manual → aggressive adds comment)
 def detect_eval_usage(node, source):
     if node.type == "call_expression":
         func = node.child_by_field_name("function")
         if func and get_text(func, source) == "eval":
             return [{
                 "type": "Use of eval()",
-                "message": "eval() is unsafe. Replace with safer alternative.",
+                "message": "eval() is unsafe.",
                 "severity": "high",
-                **_meta(node)
+                **_meta(node, True, {
+                    "type": "manual_hint",
+                    "hint": "Replace eval() with JSON.parse() or safer alternative."
+                }, "medium")
             }]
     return []
 
-# 2. var usage → auto replace
+# 2. var → let (precise replace)
 def detect_var_usage(node, source):
     if node.type == "variable_declaration":
         text = get_text(node, source)
-        if re.search(r'\bvar\b', text):
-            fixed_text = re.sub(r'\bvar\b', 'let', text, count=1)
+
+        if text.startswith("var"):
             return [{
                 "type": "Use of var",
-                "message": "Replaced 'var' with 'let'.",
+                "message": "Replace 'var' with 'let'.",
                 "severity": "low",
                 **_meta(node, True, {
                     "type": "replace",
-                    "content": fixed_text
+                    "start": node.start_byte,
+                    "end": node.start_byte + 3,
+                    "content": "let"
                 })
             }]
     return []
 
-# 3. console.log → safer replace
+# 3. console.log → delete whole call
 def detect_console_log(node, source):
     if node.type == "call_expression":
         text = get_text(node, source)
-        if "console.log" in text:
+
+        if text.startswith("console.log"):
             return [{
                 "type": "console.log usage",
-                "message": "Removed console.log statement.",
+                "message": "Remove console.log.",
                 "severity": "low",
                 **_meta(node, True, {
-                    "type": "replace",
-                    "content": ""
+                    "type": "delete",
+                    "start": node.start_byte,
+                    "end": node.end_byte
                 })
             }]
     return []
 
-# 4. loose equality → safer regex
+# 4. loose equality → replace operator only
 def detect_loose_equality(node, source):
     if node.type == "binary_expression":
         text = get_text(node, source)
-        if re.search(r'(?<![=!])==(?!=)', text):
-            fixed_text = re.sub(r'(?<![=!])==(?!=)', '===', text)
+
+        match = re.search(r'(?<![=!])==(?!=)', text)
+        if match:
+            start = node.start_byte + match.start()
+            end = node.start_byte + match.end()
+
             return [{
                 "type": "Loose equality (==)",
-                "message": "Replaced '==' with '==='.",
+                "message": "Use '===' instead.",
                 "severity": "medium",
                 **_meta(node, True, {
                     "type": "replace",
-                    "content": fixed_text
-                })
+                    "start": start,
+                    "end": end,
+                    "content": "==="
+                }, "medium")
             }]
     return []
 
@@ -89,21 +104,25 @@ def detect_assignment_in_condition(node, source):
                     "type": "Assignment in condition",
                     "message": "Avoid assignment in conditions.",
                     "severity": "high",
-                    **_meta(condition)
+                    **_meta(condition, True, {
+                        "type": "manual_hint",
+                        "hint": "Use '===' instead of '=' in conditions."
+                    }, "medium")
                 }]
     return []
 
-# 6. empty block (optional fix)
+# 6. empty block → delete
 def detect_empty_block(node, source):
     if node.type == "statement_block":
         if len(node.children) <= 2:
             return [{
                 "type": "Empty block",
-                "message": "Empty block detected.",
+                "message": "Remove empty block.",
                 "severity": "low",
                 **_meta(node, True, {
-                    "type": "replace",
-                    "content": ""
+                    "type": "delete",
+                    "start": node.start_byte,
+                    "end": node.end_byte
                 }, "medium")
             }]
     return []
@@ -135,58 +154,64 @@ def detect_long_functions(node, source):
     return []
 
 # 9. deeply nested ifs (manual)
-def detect_deeply_nested_ifs(node, source, depth=0):
-    if node.type == "if_statement":
-        depth += 1
-        if depth > 3:
-            return [{
-                "type": "Deeply nested if",
-                "message": "Too much nesting.",
-                "severity": "medium",
-                **_meta(node, False, None, "medium")
-            }]
+def detect_deeply_nested_ifs(node, source, if_depth=0):
+    if node.type == "if_statement" and if_depth > 3:
+        return [{
+            "type": "Deeply nested if",
+            "message": f"Nesting depth is {if_depth}, consider refactoring.",
+            "severity": "medium",
+            **_meta(node, False, None, "medium")
+        }]
     return []
 
-# 10. string concatenation (limited auto-fix)
+# 10. string concatenation → template literal
 def detect_string_plus(node, source):
     if node.type == "binary_expression":
         text = get_text(node, source)
+
         match = re.match(r'"([^"]*)"\s*\+\s*(\w+)', text)
         if match:
-            fixed_text = f"`{match.group(1)} ${{{match.group(2)}}}`"
+            fixed = f"`{match.group(1)} ${{{match.group(2)}}}`"
+
             return [{
                 "type": "String concatenation",
                 "message": "Use template literals.",
                 "severity": "low",
                 **_meta(node, True, {
                     "type": "replace",
-                    "content": fixed_text
+                    "start": node.start_byte,
+                    "end": node.end_byte,
+                    "content": fixed
                 }, "medium")
             }]
     return []
 
 # 11. global vars (manual)
-def detect_global_vars(node, source):
-    if node.type == "program":
-        if re.search(r'^\s*(var|let|const)\s+', source, re.MULTILINE):
+def detect_global_vars(node, source, scope=None, parent=None):
+    # Only trigger at root level
+    if node.type == "program" and scope:
+        globals_found = scope["declared"]
+
+        if globals_found:
             return [{
-                "type": "Global variable",
-                "message": "Encapsulate globals.",
+                "type": "Global variables",
+                "message": f"Global variables detected: {', '.join(globals_found)}",
                 "severity": "medium",
                 **_meta(node, False, None, "medium")
             }]
     return []
 
-# 12. missing use strict (auto insert)
+# 12. missing use strict → insert at top
 def detect_missing_use_strict(node, source):
     if node.type == "program":
         if '"use strict"' not in source and "'use strict'" not in source:
             return [{
                 "type": "Missing 'use strict'",
-                "message": "Added 'use strict'.",
+                "message": "Add 'use strict'.",
                 "severity": "low",
                 **_meta(node, True, {
                     "type": "insert",
+                    "start": 0,
                     "content": "'use strict';\n"
                 })
             }]
@@ -207,15 +232,20 @@ def detect_duplicate_cases(node, source):
     return []
 
 # 14. param reassignment (manual)
-def detect_param_reassignment(node, source):
-    if node.type == "assignment_expression":
-        text = get_text(node, source)
-        if re.match(r'\w+\s*=', text):
+def detect_param_reassignment(node, source, params=None):
+    if node.type == "assignment_expression" and params:
+        text = source[node.start_byte:node.end_byte]
+        # Extract left side of assignment
+        left = text.split("=")[0].strip()
+        if left in params:
             return [{
                 "type": "Parameter reassignment",
-                "message": "Avoid mutating parameters.",
-                "severity": "low",
-                **_meta(node, False, None, "medium")
+                "message": f"Parameter '{left}' is reassigned.",
+                "severity": "medium",
+                **_meta(node, True, {
+                    "type": "manual_hint",
+                    "hint": f"Avoid mutating parameter '{left}'. Use a new variable instead."
+                }, "medium")
             }]
     return []
 
@@ -255,7 +285,19 @@ def detect_too_many_params(node, source):
                 **_meta(node, False, None, "medium")
             }]
     return []
+# 18. detect unused variables
+def detect_unused_variables(node, source, scope=None):
+    if node.type in ["program", "function_declaration"] and scope:
+        unused = scope["declared"] - scope["used"]
 
+        if unused:
+            return [{
+                "type": "Unused variables",
+                "message": f"Unused variables: {', '.join(unused)}",
+                "severity": "low",
+                **_meta(node, False, None, "medium")
+            }]
+    return []
 rules = [
     detect_eval_usage,
     detect_var_usage,
@@ -274,4 +316,5 @@ rules = [
     detect_unreachable_code,
     detect_nested_functions,
     detect_too_many_params,
+    detect_unused_variables,
 ]
