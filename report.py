@@ -89,7 +89,7 @@ def print_report(filepath, issues, global_summary=None):
         console.print("\n[bold yellow][!] Interrupted while generating report[/bold yellow]")
         raise  # re-raise to be handled by main()
 
-def print_summary(severity_totals, total_issues):
+def print_summary(severity_totals, total_issues, stats=None):
     console.print("\n[bold underline green]Severity Breakdown:[/bold underline green]\n")
 
     table = Table(show_header=True, header_style="bold magenta")
@@ -117,12 +117,26 @@ def print_summary(severity_totals, total_issues):
     if not has_data:
         table.add_row("[green]No issues[/green]", "[green]0[/green]")
 
-    console.print(table)
-
-    console.print(
+    if stats:
+        console.print(
         Panel.fit(
-            Text(f"Total Issues Found: {total_issues}", style="bold red"),
-            title="Scan Summary",
-            border_style="red"
+
+                f"\n"
+                f"[cyan]Files:[/cyan] {stats.get('total_files', 0)}  |  "
+                f"[green]Code:[/green] {stats.get('code_files', 0)}  |  "
+                f"[yellow]Skipped:[/yellow] {stats.get('skipped_files', 0)}\n",
+                style="bold white",
+
+            title="Files Scanned",
+            border_style="cyan"
         )
     )
+    console.print(table)
+    
+    console.print(
+    Panel.fit(
+        Text(f"Total Issues Found: {total_issues}", style="bold red"),
+        title="Scan Summary",
+        border_style="red"
+    )
+)
