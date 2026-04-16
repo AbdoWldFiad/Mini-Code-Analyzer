@@ -19,12 +19,15 @@ REPORTS_DIR.mkdir(exist_ok=True)
 
 EXTENSION_MAP = {
     ".py": "python",
+    ".pyw": "python",
     ".js": "javascript",
     ".jsx": "javascript",
     ".ts": "javascript",
     ".tsx": "javascript",
     ".html": "html",
+    ".htm": "html",
     ".php": "php",
+    ".blade.php": "php",
 }
 
 def detect_framework(root: Path):
@@ -50,6 +53,12 @@ def detect_framework(root: Path):
     return None
 
 def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report=False, verbose=False, aggressive=False,create_backup=False):
+    stats = {
+    "total_files": 0,
+    "code_files": 0,
+    "skipped_files": 0
+}
+    
     # for summary
     severity_totals = defaultdict(int)
     total_issues = 0
@@ -73,14 +82,17 @@ def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report
         task = progress.add_task("Analyzing files...", total=len(all_files))
 
         for path in all_files:
+            stats["total_files"] += 1
             # Determine language
-            suffix = path.suffix.lower()
+            suffix = "".join(path.suffixes).lower()
             lang = EXTENSION_MAP.get(suffix)
 
             if not lang:
+                stats["skipped_files"] += 1
                 progress.advance(task)
                 continue
-
+            
+            stats["code_files"] += 1
             analyzer = SecureCodeAnalyzer(language=lang, framework=framework)
             issues = analyzer.analyze_file(str(path))
             
@@ -107,7 +119,7 @@ def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report
                 )
 
             progress.advance(task)
-    print_summary(severity_totals, total_issues)
+    print_summary(severity_totals, total_issues,stats)
     
     console.print(Panel(Text("Analysis Complete!", style="bold green"), expand=False))
 
