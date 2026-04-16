@@ -49,7 +49,7 @@ def detect_framework(root: Path):
 
     return None
 
-def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report=False, verbose=False,):
+def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report=False, verbose=False, aggressive=False,create_backup=False):
     # for summary
     severity_totals = defaultdict(int)
     total_issues = 0
@@ -101,7 +101,9 @@ def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report
                     issues,
                     dry_run=dry_run,
                     output_json=json_report,
-                    report_dir=str(REPORTS_DIR)
+                    report_dir=str(REPORTS_DIR),
+                    create_backup=create_backup,
+                    aggressive=aggressive
                 )
 
             progress.advance(task)
@@ -130,6 +132,8 @@ def main():
     args = parse_args()
     target = Path(args.path)
 
+    create_backup = False
+
     if args.fix and not args.dry_run:
         user_input = input("Create backups for all modified files? (y/n): ").strip().lower()
         create_backup = (user_input == "y")
@@ -139,7 +143,7 @@ def main():
         sys.exit(1)
     try:
         analyze_directory( target, autofix=args.fix, dry_run=args.dry_run,
-         json_report=args.json, verbose=args.verbose,
+         json_report=args.json, verbose=args.verbose,aggressive=args.aggressive,create_backup=create_backup
         )
     except KeyboardInterrupt:
         print("\n[INFO] Scan interrupted by user (Ctrl+C). Exiting gracefully...")
