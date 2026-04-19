@@ -90,12 +90,12 @@ def print_report(filepath, issues, global_summary=None):
         raise  # re-raise to be handled by main()
 
 def print_summary(severity_totals, total_issues, stats=None):
-    console.print("\n[bold underline green]Severity Breakdown:[/bold underline green]\n")
+    console.print("\n[bold underline green]Scan Breakdown:[/bold underline green]\n")
 
-    table = Table(show_header=True, header_style="bold magenta")
+    table = Table(show_header=True, header_style="bold white",border_style="cyan",padding=(0, 2))
     table.add_column("Severity", style="bold")
-    table.add_column("Count", justify="right")
-    table.add_column("Percentage", justify="right")
+    table.add_column("Count", justify="center")
+    table.add_column("Percentage %", justify="center")
 
     # Keep consistent order
     order = ["critical", "high", "medium", "low", "n/a"]
@@ -124,7 +124,9 @@ def print_summary(severity_totals, total_issues, stats=None):
                 f"\n"
                 f"[cyan]Files:[/cyan] {stats.get('total_files', 0)}  |  "
                 f"[green]Code:[/green] {stats.get('code_files', 0)}  |  "
-                f"[yellow]Skipped:[/yellow] {stats.get('skipped_files', 0)}\n",
+                f"[yellow]Skipped:[/yellow] {stats.get('skipped_files', 0)}\n"
+                f"\n"
+                f"\t[bold red]Total Issues Found: [/bold red] {total_issues}\n",
                 style="bold white",
 
             title="Files Scanned",
@@ -132,11 +134,3 @@ def print_summary(severity_totals, total_issues, stats=None):
         )
     )
     console.print(table)
-    
-    console.print(
-    Panel.fit(
-        Text(f"Total Issues Found: {total_issues}", style="bold red"),
-        title="Scan Summary",
-        border_style="red"
-    )
-)
