@@ -124,9 +124,9 @@ def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report
     console.print(Panel(Text("Analysis Complete!", style="bold green"), expand=False))
 
 def parse_args():
-    parser = argparse.ArgumentParser( prog="mini-analyzer", description="Mini Code Analyzer – Static Security Analysis Tool" )
-                                    #TODO: change the default here
-    parser.add_argument( "path", nargs="?", default=r"D:\shogle\progaming-lang\Projects\DVWA\testing_autofux\DVWA", help="Target file or directory to analyze (default: test_samples)" )
+    parser = argparse.ArgumentParser( prog="mini-analyzer", description="Mini Code Analyzer – Static Security Analysis Tool for source code" )
+                                    #TODO: delete later temp scan root for testing "D:\shogle\progaming-lang\Projects\DVWA\testing_autofux\DVWA"
+    parser.add_argument( "path", nargs="?", default=".", help="Target file or directory to analyze (default: test_samples)" )
 
     parser.add_argument( "--fix", "-f", action="store_true", help="Automatically apply safe fixes" )
 
@@ -138,6 +138,8 @@ def parse_args():
 
     parser.add_argument( "--verbose", "-v", action="store_true", help="Verbose mode (show detailed per-file reports)" )
     
+    parser.add_argument( "--backup", action="store_true", help="Create backups before modifying files" )
+    
     return parser.parse_args()
 
 def main():
@@ -147,8 +149,11 @@ def main():
     create_backup = False
 
     if args.fix and not args.dry_run:
-        user_input = input("Create backups for all modified files? (y/n): ").strip().lower()
-        create_backup = (user_input == "y")
+        create_backup = args.backup
+    
+    if args.fix and args.dry_run:
+        print("Error: Cannot use --fix with --dry-run")
+        sys.exit(1)
     
     if not target.exists():
         console.print(f"[bold red]Error:[/bold red] Path '{target}' does not exist.")
