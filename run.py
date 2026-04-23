@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.panel import Panel
 from rich.text import Text
-from rich.table import Table
+from rich.prompt import Prompt
 from collections import defaultdict
 
 console = Console()
@@ -29,6 +29,21 @@ EXTENSION_MAP = {
     ".php": "php",
     ".blade.php": "php",
 }
+
+def banner():
+    os.system('cls' if os.name == 'nt' else 'clear')
+
+    print()
+
+    print("                     \033[38;2;0;255;255m███╗   ███╗ ██████╗ █████╗ \033[0m")
+    print("                     \033[38;2;0;204;255m████╗ ████║██╔════╝██╔══██╗\033[0m")
+    print("                     \033[38;2;0;153;255m██╔████╔██║██║     ███████║\033[0m")
+    print("                     \033[38;2;0;102;255m██║╚██╔╝██║██║     ██╔══██║\033[0m")
+    print("                     \033[38;2;0;51;255m██║ ╚═╝ ██║╚██████ ██║  ██║\033[0m")
+    print("                     \033[38;2;0;0;255m╚═╝     ╚═╝ ╚═════╝╚═╝  ╚═╝\033[0m")
+
+    print("\n                \033[1;36mMini Code Analyzer (MCA) v0.1\033[0m")
+    print("         \033[38;2;0;0;255mStatic Security Analysis & Auto Fix Tool\033[0m\n")
 
 def detect_framework(root: Path):
     files = {f.lower() for f in os.listdir(root)}
@@ -64,7 +79,8 @@ def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report
     total_issues = 0
     
     framework = detect_framework(directory)
-    console.print(f"[bold cyan]Detected framework:[/bold cyan] {framework or 'None'}\n")
+    console.print("[bold cyan]Detected framework:[/bold cyan] ", end="")
+    console.print(framework or "None", style="bold white")
 
     # Gather all files first
     all_files = []
@@ -126,7 +142,7 @@ def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report
 def parse_args():
     parser = argparse.ArgumentParser( prog="mini-analyzer", description="Mini Code Analyzer – Static Security Analysis Tool for source code" )
                                     #TODO: delete later temp scan root for testing "D:\shogle\progaming-lang\Projects\DVWA\testing_autofux\DVWA"
-    parser.add_argument( "path", nargs="?", default=".", help="Target file or directory to analyze (default: test_samples)" )
+    parser.add_argument( "path", nargs="?", help="Target file or directory to analyze" )
 
     parser.add_argument( "--fix", "-f", action="store_true", help="Automatically apply safe fixes" )
 
@@ -143,27 +159,34 @@ def parse_args():
     return parser.parse_args()
 
 def main():
+    banner()
+    
     args = parse_args()
-    target = Path(args.path)
-
-    create_backup = False
-
-    if args.fix and not args.dry_run:
-        create_backup = args.backup
-    
-    if args.fix and args.dry_run:
-        print("Error: Cannot use --fix with --dry-run")
-        sys.exit(1)
-    
-    if not target.exists():
-        console.print(f"[bold red]Error:[/bold red] Path '{target}' does not exist.")
-        sys.exit(1)
     try:
-        analyze_directory( target, autofix=args.fix, dry_run=args.dry_run,
-         json_report=args.json, verbose=args.verbose,aggressive=args.aggressive,create_backup=create_backup
-        )
+        if not args.path:
+            console.print("[yellow]No directory provided.[/yellow]")
+            args.path = Prompt.ask("Enter directory to analyze")
+        
+        target = Path(args.path)
+
+        create_backup = False
+
+        if args.fix and not args.dry_run:
+            create_backup = args.backup
+        
+        if args.fix and args.dry_run:
+            print("Error: Cannot use --fix with --dry-run")
+            sys.exit(1)
+        
+        if not target.exists():
+            console.print(f"[bold red]Error:[/bold red] Path '{target}' does not exist.")
+            sys.exit(1)
+
+            analyze_directory( target, autofix=args.fix, dry_run=args.dry_run,
+            json_report=args.json, verbose=args.verbose,aggressive=args.aggressive,create_backup=create_backup
+            )
     except KeyboardInterrupt:
-        print("\n[INFO] Scan interrupted by user (Ctrl+C). Exiting gracefully...")
+        console.print("\n[yellow][INFO][/yellow] Scan interrupted by user. Exiting...")
         return
 
 if __name__ == "__main__":

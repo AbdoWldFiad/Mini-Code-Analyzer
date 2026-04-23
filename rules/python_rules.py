@@ -196,7 +196,7 @@ def detect_os_system_usage(node, context):
             if getattr(node.func, 'value', None) and getattr(node.func.value, 'id', '') == 'os':
                 return {
                     "type": "Use of os.system()",
-                    "severity": "High",
+                    "severity": "Low",
                     "suggestion": "Use subprocess.run with proper escaping.",
                     **_meta(node, False, {
                         "mode": "manual",
