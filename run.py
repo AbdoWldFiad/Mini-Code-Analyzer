@@ -182,9 +182,9 @@ def main():
             console.print(f"[bold red]Error:[/bold red] Path '{target}' does not exist.")
             sys.exit(1)
 
-            analyze_directory( target, autofix=args.fix, dry_run=args.dry_run,
-            json_report=args.json, verbose=args.verbose,aggressive=args.aggressive,create_backup=create_backup
-            )
+        analyze_directory( target, autofix=args.fix, dry_run=args.dry_run,
+        json_report=args.json, verbose=args.verbose,aggressive=args.aggressive,create_backup=create_backup
+        )
     except KeyboardInterrupt:
         console.print("\n[yellow][INFO][/yellow] Scan interrupted by user. Exiting...")
         return
