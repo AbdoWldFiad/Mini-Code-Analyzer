@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import os
 import sys
 import argparse
@@ -62,8 +63,20 @@ def detect_framework(root: Path):
 
     # React (needs package.json + JSX/TSX)
     if "package.json" in files:
-        if any(f.endswith((".jsx", ".tsx")) for f in files):
-            return "react"
+        try:
+            with open(root / "package.json") as f:
+                pkg = json.load(f)
+
+            deps = {
+                **pkg.get("dependencies", {}),
+                **pkg.get("devDependencies", {})
+            }
+
+            if "react" in deps:
+                return "react"
+
+        except Exception:
+            pass
 
     return None
 
@@ -88,6 +101,10 @@ def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report
         for f in files:
             all_files.append(Path(root) / f)
 
+    dots = ["", ".", "..", "..."]
+    i = 0
+    total = len(all_files)
+    
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -95,10 +112,12 @@ def analyze_directory(directory: Path, autofix=False, dry_run=False, json_report
         console=console
     ) as progress:
 
-        task = progress.add_task("Analyzing files...", total=len(all_files))
+        task = progress.add_task("[cyan]Analyzing files[/cyan]", total=len(all_files))
 
-        for path in all_files:
+        for idx, path in enumerate(all_files, start=1):
             stats["total_files"] += 1
+            progress.update(task, description=( f"[cyan]Analyzing files{dots[i % 4]:<3}[/cyan] " f"[green]{idx}/{total}[/green]" ) ) 
+            i += 1
             # Determine language
             suffix = "".join(path.suffixes).lower()
             lang = EXTENSION_MAP.get(suffix)
