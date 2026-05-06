@@ -17,6 +17,17 @@ FRAMEWORK_RULES = {
     "django": django_rules.rules,
     "react": react_rules.rules,
 }
+FRAMEWORK_LANGUAGE_MAP = {
+    "react": "javascript",
+    "flask": "python",
+    "django": "python",
+}
+
+FRAMEWORK_ALLOWED_LANGS = {
+    "react": {"javascript", "typescript"},
+    "flask": {"python"},
+    "django": {"python"},
+}
 
 class AnalysisContext:
     def __init__(self):
@@ -25,21 +36,33 @@ class AnalysisContext:
 
 class SecureCodeAnalyzer:
     def __init__(self, language="python", framework=None):
-        self.language = (language or "python").lower()
+        # Normalize
+        language = (language or "python").lower()
+        framework = framework.lower() if framework else None
+
+        # Auto-correct language from framework if needed
+        if framework and (not language or language == "python"):
+            language = FRAMEWORK_LANGUAGE_MAP.get(framework, language)
+
+        self.language = language
         self.framework = framework
         self.issues = []
 
-        # Safe rule initialization
+        # Load language rules
         try:
             self.rules = LANG_RULES.get(self.language, []).copy()
         except Exception:
             self.rules = []
 
+        # Load framework rules ONLY if language matches
         if framework:
-            try:
-                self.rules += FRAMEWORK_RULES.get(framework, [])
-            except Exception:
-                pass
+            allowed = FRAMEWORK_ALLOWED_LANGS.get(framework, set())
+
+            if self.language in allowed:
+                try:
+                    self.rules += FRAMEWORK_RULES.get(framework, [])
+                except Exception:
+                    pass
 
     # Safe logger (never crashes)
     def _log_warning(self, msg):
@@ -114,7 +137,7 @@ class SecureCodeAnalyzer:
 
                     except Exception as e:
                         self._log_warning(
-                            f"[WARN] Rule {rule.__name__} failed on {type(node).__name__}: {e}"
+                            f"[yellow][WARN][/yellow] Rule {rule.__name__} failed on {getattr(node, 'type', type(node).__name__)}"
                         )
 
         except Exception as e:
